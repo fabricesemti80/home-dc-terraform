@@ -7,9 +7,8 @@ output "nodes_info" {
   description = "Node information including IP addresses and MAC addresses"
   value = {
     for name, details in module.talos.nodes : name => {
-      ip                    = [for node in var.nodes : node.address if node.name == name][0]
-      mac_address           = details.mac_address
-      mac_address_secondary = details.mac_address_secondary
+      ip          = [for node in var.nodes : node.address if node.name == name][0]
+      mac_address = details.mac_address
     }
   }
 }

@@ -59,6 +59,14 @@ resource "proxmox_virtual_environment_vm" "talos_node" {
     interface    = "scsi0"
     size         = each.value.disk_size_gb
   }
+  dynamic "disk" {
+    for_each = each.value.controller ? [] : [1]
+    content {
+      datastore_id = each.value.data_disk_storage_pool
+      interface    = "scsi1"
+      size         = each.value.data_disk_size_gb
+    }
+  }
   cdrom {
     file_id   = proxmox_download_file.talos_iso["${each.value.proxmox_node}-${each.value.schematic_id}"].id
     interface = "ide3"
@@ -66,12 +74,6 @@ resource "proxmox_virtual_environment_vm" "talos_node" {
   network_device {
     bridge      = "vmbr0"
     mac_address = each.value.mac_address != "" ? each.value.mac_address : null
-    mtu         = each.value.mtu
-  }
-  network_device {
-    bridge      = "vmbr0"
-    vlan_id     = 70
-    mac_address = each.value.mac_address_secondary != "" ? each.value.mac_address_secondary : null
     mtu         = each.value.mtu
   }
   dynamic "hostpci" {
@@ -102,11 +104,6 @@ resource "proxmox_virtual_environment_vm" "talos_node" {
       ipv4 {
         address = "${each.value.address}/${each.value.subnet_mask}"
         gateway = var.gateway
-      }
-    }
-    ip_config {
-      ipv4 {
-        address = "10.0.70.${split(".", each.value.address)[3]}/24"
       }
     }
     dns {

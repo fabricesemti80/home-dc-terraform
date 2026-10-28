@@ -1,0 +1,67 @@
+version: '3'
+
+tasks:
+  default:
+    cmds: [task --list]
+    silent: true
+
+  init:
+    desc: Initialize Proxmox Terraform
+    cmds:
+      - scripts/tofu.sh -chdir=infra/terraform_proxmox init
+
+  plan:
+    desc: Plan Proxmox resources only after verified state handoff
+    deps: [init]
+    cmds:
+      - scripts/tofu.sh -chdir=infra/terraform_proxmox plan -out=tfplan
+    preconditions:
+      - sh: test -f infra/terraform_proxmox/STATE-HANDOFF-COMPLETE
+        msg: "Blocked: hand off the legacy Talos state to this root, then review a plan placing every VM on pve-00 and its intended storage."
+
+  apply:
+    desc: Apply only after verified state handoff
+    deps: [init]
+    cmds:
+      - scripts/tofu.sh -chdir=infra/terraform_proxmox plan -out=tfplan
+      - scripts/tofu.sh -chdir=infra/terraform_proxmox apply tfplan
+    preconditions:
+      - sh: test -f infra/terraform_proxmox/STATE-HANDOFF-COMPLETE
+        msg: "Blocked: hand off the legacy Talos state to this root and review pve-00 placement before applying."
+
+
+  plan-preview:
+    desc: Create a non-applying full-stack plan for review; state handoff marker not required
+    deps: [init]
+    cmds:
+      - scripts/tofu.sh -chdir=infra/terraform_proxmox plan -out=tfplan-preview
+
+  apply-existing-plan:
+    desc: Apply only the explicitly reviewed local tfplan file
+    cmds:
+      - test -f infra/terraform_proxmox/tfplan
+      - scripts/tofu.sh -chdir=infra/terraform_proxmox apply tfplan
+    preconditions:
+      - sh: test -f infra/terraform_proxmox/STATE-HANDOFF-COMPLETE
+        msg: "Blocked: hand off the legacy Talos state to this root and review placement before applying a saved plan."
+
+  smoke:
+    desc: Plan and apply only the small Terraform test container
+    deps: [init]
+    cmds:
+      - scripts/tofu.sh -chdir=infra/terraform_proxmox plan -target=proxmox_virtual_environment_container.smoke -out=tfplan-smoke
+      - scripts/tofu.sh -chdir=infra/terraform_proxmox apply -auto-approve tfplan-smoke
+
+  pbs-plan:
+    desc: Create a review plan for the PBS LXC only
+    deps: [init]
+    cmds:
+      - scripts/tofu.sh -chdir=infra/terraform_proxmox plan -target=proxmox_virtual_environment_container.pbs -out=tfplan-pbs
+
+  pbs-apply:
+    desc: Apply only the PBS LXC after state handoff
+    cmds:
+      - scripts/tofu.sh -chdir=infra/terraform_proxmox apply -target=proxmox_virtual_environment_container.pbs
+    preconditions:
+      - sh: test -f infra/terraform_proxmox/STATE-HANDOFF-COMPLETE
+        msg: "Blocked: complete the state handoff and review the pve-00 plan before applying the PBS LXC."

@@ -11,27 +11,27 @@ tasks:
       - scripts/tofu.sh -chdir=infra/terraform_proxmox init
 
   plan:
-    desc: Plan Proxmox resources only after verified state handoff
+    desc: Create a full Proxmox plan
     deps: [init]
     cmds:
       - scripts/tofu.sh -chdir=infra/terraform_proxmox plan -out=tfplan
-    preconditions:
-      - sh: test -f infra/terraform_proxmox/STATE-HANDOFF-COMPLETE
-        msg: "Blocked: hand off the legacy Talos state to this root, then review a plan placing every VM on pve-00 and its intended storage."
 
   apply:
-    desc: Apply only after verified state handoff
+    desc: Plan and apply the full Proxmox stack after confirmation
     deps: [init]
     cmds:
-      - scripts/tofu.sh -chdir=infra/terraform_proxmox plan -out=tfplan
-      - scripts/tofu.sh -chdir=infra/terraform_proxmox apply tfplan
-    preconditions:
-      - sh: test -f infra/terraform_proxmox/STATE-HANDOFF-COMPLETE
-        msg: "Blocked: hand off the legacy Talos state to this root and review pve-00 placement before applying."
+      - scripts/tofu.sh -chdir=infra/terraform_proxmox apply
+      - task: ensure-lxc-nesting
+        vars:
+          VMID: "4019"
+      - task: ensure-lxc-nesting
+        vars:
+          VMID: "4020"
+      - task: access-all
 
 
   plan-preview:
-    desc: Create a non-applying full-stack plan for review; state handoff marker not required
+    desc: Create a non-applying full-stack plan for review
     deps: [init]
     cmds:
       - scripts/tofu.sh -chdir=infra/terraform_proxmox plan -out=tfplan-preview
@@ -41,9 +41,13 @@ tasks:
     cmds:
       - test -f infra/terraform_proxmox/tfplan
       - scripts/tofu.sh -chdir=infra/terraform_proxmox apply tfplan
-    preconditions:
-      - sh: test -f infra/terraform_proxmox/STATE-HANDOFF-COMPLETE
-        msg: "Blocked: hand off the legacy Talos state to this root and review placement before applying a saved plan."
+      - task: ensure-lxc-nesting
+        vars:
+          VMID: "4019"
+      - task: ensure-lxc-nesting
+        vars:
+          VMID: "4020"
+      - task: access-all
 
   smoke:
     desc: Plan and apply only the small Terraform test container
@@ -51,6 +55,10 @@ tasks:
     cmds:
       - scripts/tofu.sh -chdir=infra/terraform_proxmox plan -target=proxmox_virtual_environment_container.smoke -out=tfplan-smoke
       - scripts/tofu.sh -chdir=infra/terraform_proxmox apply -auto-approve tfplan-smoke
+      - task: ensure-lxc-nesting
+        vars:
+          VMID: "4019"
+      - task: access-smoke
 
   pbs-plan:
     desc: Create a review plan for the PBS LXC only
@@ -59,9 +67,90 @@ tasks:
       - scripts/tofu.sh -chdir=infra/terraform_proxmox plan -target=proxmox_virtual_environment_container.pbs -out=tfplan-pbs
 
   pbs-apply:
-    desc: Apply only the PBS LXC after state handoff
+    desc: Apply only the PBS LXC
+    deps: [init]
     cmds:
       - scripts/tofu.sh -chdir=infra/terraform_proxmox apply -target=proxmox_virtual_environment_container.pbs
-    preconditions:
-      - sh: test -f infra/terraform_proxmox/STATE-HANDOFF-COMPLETE
-        msg: "Blocked: complete the state handoff and review the pve-00 plan before applying the PBS LXC."
+      - task: ensure-lxc-nesting
+        vars:
+          VMID: "4020"
+      - task: access-pbs
+
+  ensure-lxc-nesting:
+    desc: Enable nesting on an LXC using root access to pve-00
+    internal: true
+    silent: true
+    cmds:
+      - bash scripts/ensure-lxc-nesting.sh {{.VMID}}
+
+  nodes-plan:
+    desc: Create a review plan for the Talos VM deployment
+    deps: [init]
+    cmds:
+      - scripts/tofu.sh -chdir=infra/terraform_proxmox plan -target=module.talos -out=tfplan-nodes
+
+  nodes-apply:
+    desc: Apply Talos VMs from this independent Proxmox root
+    deps: [init]
+    cmds:
+      - scripts/tofu.sh -chdir=infra/terraform_proxmox apply -target=module.talos
+      - task: access-nodes
+
+  access-all:
+    desc: Print access guidance for all configured guests
+    silent: true
+    cmds:
+      - task: access-smoke
+      - task: access-pbs
+      - task: access-nodes
+
+  access-smoke:
+    desc: Print smoke LXC access guidance
+    silent: true
+    cmds:
+      - |
+        printf '%s\n' \
+          'SMOKE LXC — VMID 4019' \
+          'Address: 10.0.40.19/24 on VLAN 40; reachable from VLAN 40 or routed clients.' \
+          'SSH: ssh -i ~/.ssh/id_proxmox root@10.0.40.19' \
+          'The matching public key is authorized; password login is not configured.' \
+          'If SSH reports a key mismatch, verify the fingerprint below, then run ssh-keygen -R 10.0.40.19.' \
+          'PVE console: ssh pve-00, then pct enter 4019 as root.' \
+          ''
+      - ssh pve-00 'pct exec 4019 -- ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub'
+
+  access-pbs:
+    desc: Print PBS LXC access guidance
+    silent: true
+    cmds:
+      - |
+        printf '%s\n' \
+          'PBS LXC — VMID 4020' \
+          'Address: 10.0.40.20/24 on VLAN 40; reachable from VLAN 40 or routed clients.' \
+          'SSH: ssh -i ~/.ssh/id_proxmox root@10.0.40.20' \
+          'The matching public key is authorized; password login is not configured.' \
+          'If SSH reports a key mismatch, verify the fingerprint below, then run ssh-keygen -R 10.0.40.20.' \
+          'PBS web UI: https://10.0.40.20:8007 (available after PBS is installed).' \
+          'PVE console: ssh pve-00, then pct enter 4020 as root.' \
+          ''
+      - ssh pve-00 'pct exec 4020 -- ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub'
+
+  access-nodes:
+    desc: Print Talos VM access guidance
+    silent: true
+    cmds:
+      - |
+        printf '%s\n' \
+          'TALOS VMs — planned addresses' \
+          'Controllers (started): 4090=10.0.40.90, 4091=10.0.40.91, 4092=10.0.40.92' \
+          'Workers (started): 4093=10.0.40.93, 4094=10.0.40.94 (GPU passthrough)' \
+          'Use the Proxmox web console by VMID. These are planned IPs; reachability depends on guest boot/networking.' \
+          '' \
+          'Before machine config (maintenance mode):' \
+          'talosctl version --insecure --nodes 10.0.40.90' \
+          'Use .91 or .92 for another started, reachable controller.' \
+          '' \
+          'After config/bootstrap (authenticated):' \
+          'talosctl --talosconfig <path> --endpoints 10.0.40.90 --nodes <node-IP> version' \
+          'This root creates no talosconfig and configures no VIP (including 10.0.40.101).' \
+          ''

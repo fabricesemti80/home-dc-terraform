@@ -3,7 +3,10 @@ resource "proxmox_virtual_environment_container" "pbs" {
   node_name    = "pve-00"
   vm_id        = 4020
   unprivileged = false
-  started      = false
+  started      = true
+  lifecycle {
+    ignore_changes = [features, initialization[0].user_account]
+  }
 
   initialization {
     hostname = "pbs"
@@ -13,11 +16,13 @@ resource "proxmox_virtual_environment_container" "pbs" {
         gateway = "10.0.40.1"
       }
     }
+    user_account {
+      keys = [trimspace(file(pathexpand("~/.ssh/id_proxmox.pub")))]
+    }
   }
   network_interface {
-    name    = "veth0"
-    bridge  = "vmbr0"
-    vlan_id = 40
+    name   = "veth0"
+    bridge = "vmbr0"
   }
   disk {
     datastore_id = "local-nvme"

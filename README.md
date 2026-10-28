@@ -1,22 +1,27 @@
 # Proxmox Terraform
 
-This repository manages guests on `pve-00` through OpenTofu and Task. Its Proxmox API endpoint is `https://10.0.40.10:8006`. The API token is read at runtime from the `iac` 1Password vault item `pve-00-terraform-api-token`; no token is stored in Terraform variable files.
+This repository independently manages guests on `pve-00` through OpenTofu and Task. The Proxmox API token is read at runtime from the `iac` 1Password vault item `pve-00-terraform-api-token`; credentials are not stored in Terraform files.
 
-## Proxmox stack
+The OpenTofu state in `infra/terraform_proxmox/terraform.tfstate` belongs to this repository. It is not imported from or synchronized with `home-dc-kubernetes`; the existing Kubernetes deployment and its state stay there, untouched by these tasks.
 
-`infra/terraform_proxmox` holds the Proxmox provider root and Talos module, including the `module.talos.*` resource addresses and `nodes.yaml` IP/MAC output update. It preserves definitions for three controllers (VMIDs 4090–4092); the old local state records these on `pve-0`, `pve-1`, and `pve-2`, while the new root targets the standalone `pve-00`. Two worker definitions (4093 and 4094) are stopped on `local-hdd`; the GPU worker's Talos schematic has not been verified for NVIDIA driver support. All guests use VLAN 40 addressing. PBS CT ID 4020 is configured for `10.0.40.20/24`, gateway `10.0.40.1`.
+## Deploy in stages
 
-The previous Proxmox/Talos state is still in the Kubernetes repository's local working copy and has not been copied or reconciled here. It records controllers on `pve-0`, `pve-1`, and `pve-2`, unlike the live standalone `pve-00`. The Kubernetes repository's Proxmox task entrypoints were removed, but its local state is preserved. Full `task plan` and `task apply` require a deliberate state handoff, represented by `infra/terraform_proxmox/STATE-HANDOFF-COMPLETE`; do not create that marker before reviewing and reconciling ownership. The targeted smoke LXC was deployed separately.
+```bash
+task init
+task pbs-plan
+task pbs-apply
+task nodes-plan
+task nodes-apply
+```
 
-## Tasks
+- `task pbs-plan` plans the PBS LXC only. `task pbs-apply` creates and starts LXC 4020 on `pve-00`, `10.0.40.20/24`, using `local-nvme`. Its NIC is untagged on `vmbr0`; the Proxmox uplink's native/access network must be VLAN 40.
+- The PBS task provisions a Debian LXC target; it does not run the Community Scripts installer or install PBS itself.
+- `task nodes-plan` plans the Talos VM module and dependencies. `task nodes-apply` applies that module only: controllers 4090–4092 use `local-nvme`; workers 4093–4094 use `local-hdd`. Talos boot ISOs and generated cloud-init images use `nfs-proxmox-iso`.
+- Talos VMs use the same untagged `vmbr0` network for VLAN 40 (`10.0.40.0/24`); their secondary VLAN 70 interface remains tagged. The uplink must carry VLAN 70 tagged. GPU worker 4094 is configured for P2000 passthrough. Talos configuration and Kubernetes bootstrap remain separate workflows.
+- LXC SSH is available from VLAN 40 or routed clients using the root key in `~/.ssh/id_proxmox`; no root password is set. Apply tasks print direct SSH commands and the current host-key fingerprints. Talos guidance distinguishes unauthenticated maintenance access from authenticated API access after config/bootstrap.
+- The Proxmox host bridge is untagged and not VLAN-aware, so VLAN 40 guests use untagged `vmbr0`; the switch uplink's native/access VLAN must be 40. The secondary Talos NIC remains tagged VLAN 70.
+- PVE's API token cannot change feature flags on privileged LXCs. Apply tasks use the feature-preserving root-SSH helper to enable nesting and reboot an LXC only if nesting is not already enabled; Terraform ignores feature/user-account changes because these provider settings are restricted/create-time.
+- PBS/Talos staged tasks use OpenTofu `-target` to avoid deploying the other stack early. Those targeting warnings are expected; run `task plan` afterward to inspect any intentionally pending resources.
+- `task plan-preview` creates a full-stack plan without applying. `task plan` saves a full-stack plan. `task apply` presents a full plan and prompts before applying it. `task apply-existing-plan` applies the explicitly reviewed `tfplan` file.
 
-- `task init`: initialize providers.
-- `task plan-preview`: create a local plan for review.
-- `task apply-existing-plan`: apply only a previously reviewed plan file; do not use before state handoff.
-- `task smoke`: successfully creates the Debian LXC (ID 4019, `10.0.40.19/24`, VLAN 40); it remains stopped on `local-nvme`.
-- `task pbs-plan`: create a targeted plan for PBS CT ID 4020 (`10.0.40.20/24`, VLAN 40); not applied.
-- `task pbs-apply`: apply the PBS LXC only after reviewed state handoff.
-
-The PBS configuration creates a privileged Debian LXC with resource limits; it does **not** install PBS or run the Community Scripts installer. Validate that script's requirements before execution. GPU passthrough is not configured: PVE docs identify the P2000 GPU and audio functions, but Talos schematic extensions and guest driver support remain unverified.
-
-The local state, plan, and provider cache are ignored. Never commit `.tfstate`, `tfplan`, provider cache, or credentials. The PVE token grants administrator access; review plans and apply only intentionally.
+The smoke LXC (4019, `10.0.40.19/24`) is untagged on `vmbr0` like the PVE host; the uplink's native/access network must be VLAN 40. It runs Debian 12 from the Proxmox standard LXC template, pinned by SHA-512. Terraform state, saved plans, and provider caches are ignored; never commit credentials or state files. See [`infra/terraform_proxmox/README.md`](infra/terraform_proxmox/README.md) for details.

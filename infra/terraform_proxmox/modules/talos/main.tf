@@ -5,14 +5,6 @@ terraform {
       source  = "bpg/proxmox"
       version = "~> 0.116"
     }
-    talos = {
-      source  = "siderolabs/talos"
-      version = "~> 0.12"
-    }
-    null = {
-      source  = "hashicorp/null"
-      version = "~> 3.0"
-    }
   }
 }
 
@@ -29,7 +21,7 @@ resource "proxmox_download_file" "talos_iso" {
   }
 
   content_type = "iso"
-  datastore_id = "local"
+  datastore_id = "nfs-proxmox-iso"
   node_name    = each.value[0].proxmox_node
   url          = "https://factory.talos.dev/image/${each.value[0].schematic_id}/${var.talos_version}/${var.talos_image_type}-amd64.iso"
   file_name    = "talos-${each.value[0].schematic_id}.img"
@@ -65,7 +57,6 @@ resource "proxmox_virtual_environment_vm" "talos_node" {
   }
   network_device {
     bridge      = "vmbr0"
-    vlan_id     = 40
     mac_address = each.value.mac_address != "" ? each.value.mac_address : null
     mtu         = each.value.mtu
   }
@@ -98,7 +89,7 @@ resource "proxmox_virtual_environment_vm" "talos_node" {
   }
 
   initialization {
-    datastore_id = "local"
+    datastore_id = "nfs-proxmox-iso"
     ip_config {
       ipv4 {
         address = "${each.value.address}/${each.value.subnet_mask}"
@@ -120,6 +111,6 @@ resource "proxmox_virtual_environment_vm" "talos_node" {
   }
 
   lifecycle {
-    ignore_changes = [disk[0].file_id, cdrom[0].file_id]
+    ignore_changes = [disk[0].file_id]
   }
 }

@@ -14,6 +14,9 @@ resource "proxmox_virtual_environment_container" "smoke" {
   vm_id        = 4019
   unprivileged = true
   started      = true
+  lifecycle {
+    ignore_changes = [features, initialization[0].user_account]
+  }
 
   initialization {
     hostname = "terraform-smoke"
@@ -23,11 +26,13 @@ resource "proxmox_virtual_environment_container" "smoke" {
         gateway = "10.0.40.1"
       }
     }
+    user_account {
+      keys = [trimspace(file(pathexpand("~/.ssh/id_proxmox.pub")))]
+    }
   }
   network_interface {
-    name    = "veth0"
-    bridge  = "vmbr0"
-    vlan_id = 40
+    name   = "veth0"
+    bridge = "vmbr0"
   }
   disk {
     datastore_id = "local-nvme"

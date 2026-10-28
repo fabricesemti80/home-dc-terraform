@@ -96,6 +96,13 @@ tasks:
       - scripts/tofu.sh -chdir=infra/terraform_proxmox apply -target=module.talos
       - task: access-nodes
 
+  nodes-apply-reviewed:
+    desc: Apply exactly the Talos VM plan last saved by nodes-plan
+    cmds:
+      - test -f infra/terraform_proxmox/tfplan-nodes
+      - scripts/tofu.sh -chdir=infra/terraform_proxmox apply tfplan-nodes
+      - task: access-nodes
+
   access-all:
     desc: Print access guidance for all configured guests
     silent: true

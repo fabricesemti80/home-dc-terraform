@@ -14,10 +14,12 @@ task nodes-apply
 ```
 
 - PBS: LXC 4020, `10.0.40.20/24`, untagged on `vmbr0`, `local-nvme`, 4 vCPU / 8 GiB. The PVE uplink's native/access network must be VLAN 40. `pbs-apply` creates and starts a Debian LXC target; it does not run the Community Scripts installer or install PBS.
-- Talos VMs: `nodes-plan`/`nodes-apply` target `module.talos` and its Proxmox dependencies only. Controller 4090 is configured to start on `local-nvme`; workers 4095–4097 are configured to start on `local-hdd`. Boot ISOs and cloud-init images use `nfs-proxmox-iso`.
-- Each Talos VM's primary NIC is untagged on `vmbr0` in VLAN 40; the secondary VLAN 70 Ceph NIC stays tagged. The switch uplink must carry VLAN 70 tagged. GPU worker 4095 (`k8s-wrkr-01-gpu`) is configured for P2000 GPU/audio passthrough and proprietary NVIDIA Talos extensions. Driver/runtime support is not verified; accept NVIDIA's driver EULA before use.
+- Talos VMs: `nodes-plan`/`nodes-apply` target `module.talos` and its Proxmox dependencies only. Controller 4090 is configured to start on `local-nvme`; workers 4095–4097 are configured to start on `local-hdd`. Boot ISOs are Talos `v1.13.8` (matching the Kubernetes repo's `talos/app/talenv.yaml`) and cloud-init images use `nfs-proxmox-iso`.
+- Each Talos VM has a single NIC untagged on `vmbr0` in VLAN 40. GPU worker 4095 (`k8s-wrkr-01-gpu`) has P2000 GPU/audio passthrough; its Talos image uses the NVIDIA **580-series LTS** driver/toolkit schematic `af8eb82417d3deaa94d2ef19c3b590b0dac1b2549d0b9b35b3da2bc325de75f7` because production 595 does not support this GPU. Accept NVIDIA's driver EULA before use and verify driver/runtime support in the guest.
 - Before applying a worker GPU passthrough handoff, shut down both donor and recipient VMs in Proxmox. Host-PCI changes can reboot running VMs, and the VM updates are independent; `started = true` may start them again during apply. This is an operator step, not automated.
 - Talos tasks provision VMs only; they do not configure Talos or bootstrap Kubernetes. They do not mutate `home-dc-kubernetes` files or state.
+- Each worker VM receives a dedicated second data disk (`scsi1`) on `local-hdd`, default 100 GiB, controlled per node by `data_disk_size_gb` and `data_disk_storage_pool`. Controllers have no data disk. The existing system disk (`scsi0`) is unchanged.
+- Talos machine config in `home-dc-kubernetes` selects a non-system disk for a worker user volume, mounted at `/var/mnt/local-path-provisioner`. Confirm each VM has exactly one non-system disk before applying Talos; this Terraform root only provisions the guest disks.
 - The PVE API token cannot change feature flags on privileged LXCs (HTTP 403). `ensure-lxc-nesting` uses root SSH and merges `nesting=1` into the existing feature list, preserving all other flags; it reboots a container only when nesting is absent. Terraform ignores feature-flag drift; the helper is part of `pbs-apply`, `smoke`, and full apply tasks.
 - Smoke and PBS LXC SSH use the root key from `~/.ssh/id_proxmox.pub`; no password is configured. `initialization.user_account` applies only at container creation, so existing LXCs were seeded through `pct exec`. Key rotation on existing LXCs is a manual authorized-keys update.
 - Staged tasks use `-target`, so OpenTofu warns that a partial plan may omit other stacks; use `task plan` to review remaining work. Successful applies print direct SSH commands and host-key fingerprints. The PBS web UI is available at `https://10.0.40.20:8007` after installing PBS.
@@ -25,3 +27,10 @@ task nodes-apply
 - Smoke LXC 4019 runs Debian 12 at `10.0.40.19/24`, untagged on `vmbr0`. Its Proxmox standard LXC template is pinned by SHA-512.
 
 `task plan-preview` creates a non-applying full-stack plan. `task plan` saves a full-stack plan; `task apply` presents a full plan and requires interactive confirmation. Full-stack local state, saved plans, and provider caches are ignored by Git.
+
+## Capacity, backup, and validation
+
+- Data-disk sizing assumes `local-hdd` has at least 300 GiB free for the three 100 GiB worker disks plus headroom for snapshots and Proxmox metadata. Confirm free space on `pve-00` before `nodes-apply`.
+- Rollback before storing any workload data: restore the prior Terraform configuration and review a scoped plan. Once a worker data disk has PVC data, **never** remove it or its Terraform state to roll back without an independently verified off-host backup and restore.
+- Validate a fresh plan before applying: it may add three `scsi1` disks, remove four obsolete VLAN 70 NICs and replace the GPU worker's Talos ISO reference with the 580-series LTS schematic. Stop on any VM replacement or `scsi0` resize/deletion.
+- Removing the secondary NIC or changing the boot ISO may require a VM stop/start. Schedule a maintenance window, keep the old saved state and apply only the plan actually reviewed.

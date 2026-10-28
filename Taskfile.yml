@@ -142,13 +142,13 @@ tasks:
       - |
         printf '%s\n' \
           'TALOS VMs — planned addresses' \
-          'Controllers (started): 4090=10.0.40.90, 4091=10.0.40.91, 4092=10.0.40.92' \
-          'Workers (started): 4093=10.0.40.93, 4094=10.0.40.94 (GPU passthrough)' \
+          'Controller (started): 4090=10.0.40.90' \
+          'Workers (started): 4095=10.0.40.95 (k8s-wrkr-01-gpu), 4096=10.0.40.96, 4097=10.0.40.97' \
           'Use the Proxmox web console by VMID. These are planned IPs; reachability depends on guest boot/networking.' \
           '' \
           'Before machine config (maintenance mode):' \
           'talosctl version --insecure --nodes 10.0.40.90' \
-          'Use .91 or .92 for another started, reachable controller.' \
+          'Only one controller is configured; use 10.0.40.90.' \
           '' \
           'After config/bootstrap (authenticated):' \
           'talosctl --talosconfig <path> --endpoints 10.0.40.90 --nodes <node-IP> version' \

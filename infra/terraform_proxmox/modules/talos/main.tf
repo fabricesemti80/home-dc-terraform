@@ -27,6 +27,14 @@ resource "proxmox_download_file" "talos_iso" {
   file_name    = "talos-${each.value[0].schematic_id}.img"
   overwrite    = false
 }
+moved {
+  from = proxmox_virtual_environment_vm.talos_node["k8s-wrkr-02-gpu"]
+  to   = proxmox_virtual_environment_vm.talos_node["k8s-wrkr-02"]
+}
+moved {
+  from = proxmox_virtual_environment_vm.talos_node["k8s-wrkr-01"]
+  to   = proxmox_virtual_environment_vm.talos_node["k8s-wrkr-01-gpu"]
+}
 
 resource "proxmox_virtual_environment_vm" "talos_node" {
   for_each = { for node in var.nodes : node.name => node }

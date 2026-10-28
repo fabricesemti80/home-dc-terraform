@@ -93,7 +93,7 @@ resource "proxmox_virtual_environment_vm" "talos_node" {
       pcie    = true
     }
   }
-  boot_order = ["ide3", "scsi0"]
+  boot_order = ["scsi0", "ide3"]
   agent {
     enabled = false
   }

@@ -43,7 +43,7 @@ resource "proxmox_virtual_environment_vm" "talos_node" {
   description = "Talos ${each.value.controller ? "Control Plane" : "Worker"} Node"
   node_name   = each.value.proxmox_node
   vm_id       = each.value.vm_id
-  machine     = each.value.gpu_passthrough ? "q35" : null
+  machine     = each.value.gpu_passthrough ? "q35" : "pc"
   on_boot     = coalesce(try(each.value.on_boot, null), each.value.controller)
   started     = try(each.value.started, true)
 

@@ -1,46 +1,45 @@
 version: '3'
 
+includes:
+  proxmox:
+    taskfile: ./proxmox/Taskfile.yml
+  cloudflare:
+    taskfile: ./cloudflare/Taskfile.yml
+
 tasks:
+  "tf:init":
+    desc: Initialize all OpenTofu roots
+    cmds:
+      - task: cloudflare:tf:init
+      - task: proxmox:tf:init
+
+  "tf:plan":
+    desc: Plan all OpenTofu roots
+    cmds:
+      - task: cloudflare:tf:plan
+      - task: proxmox:tf:plan
+
+  "tf:apply":
+    desc: Apply all OpenTofu roots with per-root interactive confirmation
+    cmds:
+      - task: cloudflare:tf:apply
+      - task: proxmox:tf:apply
+
   default:
     cmds: [task --list]
     silent: true
 
-  init:
-    desc: Initialize Proxmox Terraform
-    cmds:
-      - scripts/tofu.sh -chdir=infra/terraform_proxmox init
-
-  plan:
-    desc: Create a full Proxmox plan
-    deps: [init]
-    cmds:
-      - scripts/tofu.sh -chdir=infra/terraform_proxmox plan -out=tfplan
-
-  apply:
-    desc: Plan and apply the full Proxmox stack after confirmation
-    deps: [init]
-    cmds:
-      - scripts/tofu.sh -chdir=infra/terraform_proxmox apply
-      - task: ensure-lxc-nesting
-        vars:
-          VMID: "4019"
-      - task: ensure-lxc-nesting
-        vars:
-          VMID: "4020"
-      - task: access-all
-
-
   plan-preview:
     desc: Create a non-applying full-stack plan for review
-    deps: [init]
+    deps: ["proxmox:tf:init"]
     cmds:
-      - scripts/tofu.sh -chdir=infra/terraform_proxmox plan -out=tfplan-preview
+      - scripts/tofu.sh -chdir=proxmox plan -out=tfplan-preview
 
   apply-existing-plan:
     desc: Apply only the explicitly reviewed local tfplan file
     cmds:
-      - test -f infra/terraform_proxmox/tfplan
-      - scripts/tofu.sh -chdir=infra/terraform_proxmox apply tfplan
+      - test -f proxmox/tfplan
+      - scripts/tofu.sh -chdir=proxmox apply tfplan
       - task: ensure-lxc-nesting
         vars:
           VMID: "4019"
@@ -50,11 +49,11 @@ tasks:
       - task: access-all
 
   smoke:
-    desc: Plan and apply only the small Terraform test container
-    deps: [init]
+    desc: Plan and apply only the small OpenTofu test container
+    deps: ["proxmox:tf:init"]
     cmds:
-      - scripts/tofu.sh -chdir=infra/terraform_proxmox plan -target=proxmox_virtual_environment_container.smoke -out=tfplan-smoke
-      - scripts/tofu.sh -chdir=infra/terraform_proxmox apply -auto-approve tfplan-smoke
+      - scripts/tofu.sh -chdir=proxmox plan -target=proxmox_virtual_environment_container.smoke -out=tfplan-smoke
+      - scripts/tofu.sh -chdir=proxmox apply -auto-approve tfplan-smoke
       - task: ensure-lxc-nesting
         vars:
           VMID: "4019"
@@ -62,15 +61,15 @@ tasks:
 
   pbs-plan:
     desc: Create a review plan for the PBS LXC only
-    deps: [init]
+    deps: ["proxmox:tf:init"]
     cmds:
-      - scripts/tofu.sh -chdir=infra/terraform_proxmox plan -target=proxmox_virtual_environment_container.pbs -out=tfplan-pbs
+      - scripts/tofu.sh -chdir=proxmox plan -target=proxmox_virtual_environment_container.pbs -out=tfplan-pbs
 
   pbs-apply:
     desc: Apply only the PBS LXC
-    deps: [init]
+    deps: ["proxmox:tf:init"]
     cmds:
-      - scripts/tofu.sh -chdir=infra/terraform_proxmox apply -target=proxmox_virtual_environment_container.pbs
+      - scripts/tofu.sh -chdir=proxmox apply -target=proxmox_virtual_environment_container.pbs
       - task: ensure-lxc-nesting
         vars:
           VMID: "4020"
@@ -84,24 +83,19 @@ tasks:
       - bash scripts/ensure-lxc-nesting.sh {{.VMID}}
 
   nodes-plan:
-    desc: Create a review plan for the Talos VM deployment
-    deps: [init]
+    desc: Create a full-stack review plan including Talos VMs
+    deps: ["proxmox:tf:init"]
     cmds:
-      - scripts/tofu.sh -chdir=infra/terraform_proxmox plan -target=module.talos -out=tfplan-nodes
+      - scripts/tofu.sh -chdir=proxmox plan -out=tfplan-nodes
 
   nodes-apply:
-    desc: Apply Talos VMs from this independent Proxmox root
-    deps: [init]
+    desc: Apply exactly the reviewed full-stack plan from nodes-plan
+    deps: ["proxmox:tf:init"]
     cmds:
-      - scripts/tofu.sh -chdir=infra/terraform_proxmox apply -target=module.talos
+      - test -f proxmox/tfplan-nodes
+      - scripts/tofu.sh -chdir=proxmox apply tfplan-nodes
       - task: access-nodes
 
-  nodes-apply-reviewed:
-    desc: Apply exactly the Talos VM plan last saved by nodes-plan
-    cmds:
-      - test -f infra/terraform_proxmox/tfplan-nodes
-      - scripts/tofu.sh -chdir=infra/terraform_proxmox apply tfplan-nodes
-      - task: access-nodes
 
   access-all:
     desc: Print access guidance for all configured guests

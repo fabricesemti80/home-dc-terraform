@@ -1,8 +1,11 @@
 .terraform/
 *.tfstate
 *.tfstate.*
+*.tfvars
 tfplan
 *.tfplan
 tfplan-*
 crash.log
 crash.*.log
+cloudflare-tunnel.json
+cloudflare-tunnel-infra.json

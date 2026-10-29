@@ -1,0 +1,22 @@
+version: '3'
+
+tasks:
+  "tf:init":
+    desc: Initialize the Proxmox OpenTofu root
+    cmds:
+      - '{{.ROOT_DIR}}/scripts/tofu.sh -chdir={{.ROOT_DIR}}/proxmox init'
+
+  "tf:plan":
+    desc: Create a full Proxmox plan
+    deps: ["tf:init"]
+    cmds:
+      - '{{.ROOT_DIR}}/scripts/tofu.sh -chdir={{.ROOT_DIR}}/proxmox plan -out=tfplan'
+
+  "tf:apply":
+    desc: Apply the full Proxmox stack after confirmation
+    deps: ["tf:init"]
+    cmds:
+      - '{{.ROOT_DIR}}/scripts/tofu.sh -chdir={{.ROOT_DIR}}/proxmox apply'
+      - bash '{{.ROOT_DIR}}/scripts/ensure-lxc-nesting.sh' 4019
+      - bash '{{.ROOT_DIR}}/scripts/ensure-lxc-nesting.sh' 4020
+      - task --taskfile '{{.ROOT_DIR}}/Taskfile.yml' access-all

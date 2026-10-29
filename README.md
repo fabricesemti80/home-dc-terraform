@@ -1,27 +1,45 @@
-# Proxmox Terraform
+# Infrastructure OpenTofu
 
-This repository independently manages guests on `pve-00` through OpenTofu and Task. The Proxmox API token is read at runtime from the `iac` 1Password vault item `pve-00-terraform-api-token`; credentials are not stored in Terraform files.
+This repository has two active, independent OpenTofu roots:
 
-The OpenTofu state in `infra/terraform_proxmox/terraform.tfstate` belongs to this repository. It is not imported from or synchronized with `home-dc-kubernetes`; the existing Kubernetes deployment and its state stay there, untouched by these tasks.
+- `proxmox/` provisions guest VMs and LXCs on the standalone `pve-00` host. It does not configure the PVE host or install Talos/Kubernetes. The PBS LXC is a Debian target; this root does not install PBS.
+- `cloudflare/` provisions the Kubernetes Cloudflare Tunnels and Zero Trust Access applications/policies. It writes tunnel credentials to Doppler project `home-dc-kubernetes` (`apps` and `infra` configs). Kubernetes `ExternalDNS` publishes application records; local DNS is served by Technitium. This root does not contain a local-DNS stack or direct DNS-record resources.
 
-## Deploy in stages
+Ownership boundaries:
+
+| Concern | Owner |
+| --- | --- |
+| Standalone PVE host configuration | Ansible in [`home-dc-proxmox`](https://github.com/fabricesemti80/home-dc-proxmox) |
+| Proxmox guest lifecycle | OpenTofu in this repository, `proxmox/` |
+| Talos configuration, Kubernetes bootstrap, manifests, and GitOps | [`home-dc-kubernetes`](https://github.com/fabricesemti80/home-dc-kubernetes) |
+| Local DNS | Technitium; no active Terraform root here |
+| UniFi network configuration | Separate local repository `../homelab-terraform-unifi`; UniFi DNS records are legacy, not the local-DNS source of truth |
+
+Historical Terraform state/configuration from the former Kubernetes repository remains under local, Git-ignored `state-archive/`. Those files are not active roots or an alternate source of truth. No service-host stack is active.
+
+## Tasks
+
+Root tasks run across both active roots (Cloudflare first, then Proxmox):
 
 ```bash
-task init
-task pbs-plan
-task pbs-apply
-task nodes-plan
-task nodes-apply
+task tf:init
+task tf:plan
+task tf:apply
 ```
 
-- `task pbs-plan` plans the PBS LXC only. `task pbs-apply` creates and starts LXC 4020 on `pve-00`, `10.0.40.20/24`, using `local-nvme`. Its NIC is untagged on `vmbr0`; the Proxmox uplink's native/access network must be VLAN 40.
-- The PBS task provisions a Debian LXC target; it does not run the Community Scripts installer or install PBS itself.
-- `task nodes-plan` plans the Talos VM module and dependencies. `task nodes-apply` applies that module only: controller 4090 uses `local-nvme`; workers 4095–4097 use `local-hdd` with an additional dedicated 100 GiB data disk on `local-hdd`. Talos boot ISOs and generated cloud-init images use `nfs-proxmox-iso`. Confirm `local-hdd` has at least 300 GiB free before applying worker data disks.
-- Talos nodes use a single NIC on VLAN 40 (`10.0.40.0/24`) untagged on `vmbr0`. GPU passthrough is configured for `k8s-wrkr-01-gpu` (VMID 4095). Talos configuration and Kubernetes bootstrap remain separate workflows.
-- LXC SSH is available from VLAN 40 or routed clients using the root key in `~/.ssh/id_proxmox`; no root password is set. Apply tasks print direct SSH commands and the current host-key fingerprints. Talos guidance distinguishes unauthenticated maintenance access from authenticated API access after config/bootstrap.
-- The Proxmox host bridge is untagged and not VLAN-aware, so VLAN 40 guests use untagged `vmbr0`; the switch uplink's native/access VLAN must be 40.
-- PVE's API token cannot change feature flags on privileged LXCs. Apply tasks use the feature-preserving root-SSH helper to enable nesting and reboot an LXC only if nesting is not already enabled; Terraform ignores feature/user-account changes because these provider settings are restricted/create-time.
-- PBS/Talos staged tasks use OpenTofu `-target` to avoid deploying the other stack early. Those targeting warnings are expected; run `task plan` afterward to inspect any intentionally pending resources.
-- `task plan-preview` creates a full-stack plan without applying. `task plan` saves a full-stack plan. `task apply` presents a full plan and prompts before applying it. `task apply-existing-plan` applies the explicitly reviewed `tfplan` file.
+Use namespaced tasks for one root:
 
-The smoke LXC (4019, `10.0.40.19/24`) is untagged on `vmbr0` like the PVE host; the uplink's native/access network must be VLAN 40. It runs Debian 12 from the Proxmox standard LXC template, pinned by SHA-512. Terraform state, saved plans, and provider caches are ignored; never commit credentials or state files. See [`infra/terraform_proxmox/README.md`](infra/terraform_proxmox/README.md) for details.
+```bash
+task cloudflare:tf:init
+task cloudflare:tf:plan
+task cloudflare:tf:apply
+task proxmox:tf:init
+task proxmox:tf:plan
+task proxmox:tf:apply
+```
+
+Per-root `tf:apply` tasks present a fresh interactive plan; they do not auto-approve changes. Cloudflare plan/apply uses Doppler project/config `home-dc-kubernetes/dev` as defined in `cloudflare/Taskfile.yml`.
+
+For guest operations, `task nodes-plan` creates the reviewed full-stack Talos VM plan and `task nodes-apply` applies that saved plan. `task pbs-plan` and `task pbs-apply` operate on LXC 4020 at `10.0.40.20/24`; the LXC is a Debian target and does not become a PBS server until PBS is installed and configured separately. See [`proxmox/README.md`](proxmox/README.md) for storage, network, and access details.
+
+OpenTofu state, saved plans, provider caches, tunnel credential JSON, and archived state are local secret material and ignored by Git. Never commit them.

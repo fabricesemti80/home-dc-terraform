@@ -1,6 +1,6 @@
 # Proxmox/Talos infrastructure
 
-This is a new, independent OpenTofu state for the standalone `pve-00` host. It does not import or edit the legacy Proxmox/Talos state in `../home-dc-kubernetes`; that deployment and its state stay in that repository. All resources defined here are new resources owned by this root.
+This is the active, independent OpenTofu root for the standalone `pve-00` host. Its state is `proxmox/terraform.tfstate`. The Kubernetes repository was not modified; its old Proxmox and service-host state snapshots are kept separately under `state-archive/` and are not loaded by these tasks.
 
 `scripts/tofu.sh` reads the PVE API token from the `iac` 1Password vault item `pve-00-terraform-api-token`. No credentials are committed.
 
@@ -14,10 +14,10 @@ task nodes-apply
 ```
 
 - PBS: LXC 4020, `10.0.40.20/24`, untagged on `vmbr0`, `local-nvme`, 4 vCPU / 8 GiB. The PVE uplink's native/access network must be VLAN 40. `pbs-apply` creates and starts a Debian LXC target; it does not run the Community Scripts installer or install PBS.
-- Talos VMs: `nodes-plan`/`nodes-apply` target `module.talos` and its Proxmox dependencies only. Controller 4090 is configured to start on `local-nvme`; workers 4095–4097 are configured to start on `local-hdd`. Boot ISOs are Talos `v1.13.8` (matching the Kubernetes repo's `talos/app/talenv.yaml`) and cloud-init images use `nfs-proxmox-iso`.
+- Talos VMs: `nodes-plan` creates a full-stack review plan in `tfplan-nodes`; `nodes-apply` applies exactly that saved plan. Controller 4090 is configured to start on `local-nvme`; workers 4095–4097 are configured to start on `local-hdd`. Boot ISOs are Talos `v1.13.8` (matching the Kubernetes repo's `talos/app/talenv.yaml`) and cloud-init images use `nfs-proxmox-iso`.
 - Boot the installed `scsi0` disk **before** the attached Talos ISO (`ide3`). Assumption: on a fresh guest with an unbootable disk, SeaBIOS falls through to the ISO for initial installation. Once Talos installs, ISO-first boot halts the guest in installer mode; never restore that order for installed nodes. This is an in-place VM configuration update, not a disk replacement.
 
-  **Validation:** Run `task nodes-plan`, inspect `tfplan-nodes` and require no VM replacement, disk, network or PCI changes. For the existing guests the reviewed plan showed 0 add, 4 in-place updates, 0 destroy: boot order only, plus the provider normalizing an empty `machine` field to `null` on VM 4096. If the operator changes VM 4096's boot order manually first, regenerate and inspect the plan before applying. Apply the exact reviewed plan with `task nodes-apply-reviewed` (not a fresh unreviewed plan). Verify `qm config <vmid>` shows `boot: order=scsi0;ide3` for 4090/4095/4096/4097, then reboot only halted VM 4096 and require all Kubernetes nodes `Ready`; schedule any other VM reboot separately.
+  **Validation:** `task nodes-plan` creates a full-stack plan in `tfplan-nodes`; apply only with `task nodes-apply` after review. The current one-time normalization is expected to set machine type `pc` on non-GPU VMs 4090, 4096, and 4097 (4096 currently has a blank value); GPU VM 4095 remains `q35`. The reviewed plan should show 0 add, 3 in-place changes, and 0 destroy, with no disk, network, or PCI changes. Schedule a maintenance stop/start for the three non-GPU VMs. Regenerate and review a fresh plan if configuration or state changes.
 
   **Rollback:** If a fresh, uninstalled guest cannot fall through to the ISO, boot it from the ISO for installation and reapply disk-first order before its first reboot. Do not revert installed nodes to ISO-first or remove their disks; inspect the Proxmox console before recovery. Keep the ISO attached as a rescue option.
 
@@ -28,11 +28,11 @@ task nodes-apply
 - Talos machine config in `home-dc-kubernetes` selects a non-system disk for a worker user volume, mounted at `/var/mnt/local-path-provisioner`. Confirm each VM has exactly one non-system disk before applying Talos; this Terraform root only provisions the guest disks.
 - The PVE API token cannot change feature flags on privileged LXCs (HTTP 403). `ensure-lxc-nesting` uses root SSH and merges `nesting=1` into the existing feature list, preserving all other flags; it reboots a container only when nesting is absent. Terraform ignores feature-flag drift; the helper is part of `pbs-apply`, `smoke`, and full apply tasks.
 - Smoke and PBS LXC SSH use the root key from `~/.ssh/id_proxmox.pub`; no password is configured. `initialization.user_account` applies only at container creation, so existing LXCs were seeded through `pct exec`. Key rotation on existing LXCs is a manual authorized-keys update.
-- Staged tasks use `-target`, so OpenTofu warns that a partial plan may omit other stacks; use `task plan` to review remaining work. Successful applies print direct SSH commands and host-key fingerprints. The PBS web UI is available at `https://10.0.40.20:8007` after installing PBS.
+- PBS and smoke tasks use `-target` for isolated container operations and emit the standard targeting warning. Talos tasks use a full-stack reviewed plan; successful applies print direct SSH commands and host-key fingerprints. The PBS web UI is available at `https://10.0.40.20:8007` after installing PBS.
 - Talos guidance lists each configured IP and VMID, labels workers as configured started, and distinguishes insecure maintenance access from authenticated `talosctl` after config/bootstrap. This root creates no `talosconfig` or VIP.
 - Smoke LXC 4019 runs Debian 12 at `10.0.40.19/24`, untagged on `vmbr0`. Its Proxmox standard LXC template is pinned by SHA-512.
 
-`task plan-preview` creates a non-applying full-stack plan. `task plan` saves a full-stack plan; `task apply` presents a full plan and requires interactive confirmation. Full-stack local state, saved plans, and provider caches are ignored by Git.
+`task proxmox:tf:plan` creates a full Proxmox plan; `task proxmox:tf:apply` prompts before applying. `task plan-preview` creates a non-applying Proxmox plan; `task apply-existing-plan` applies the explicitly reviewed `proxmox/tfplan`. State, saved plans, and provider caches are ignored by Git.
 
 ## Capacity, backup, and validation
 

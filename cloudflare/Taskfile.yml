@@ -1,0 +1,29 @@
+version: '3'
+
+vars:
+  DOPPLER_PROJECT: home-dc-kubernetes
+  DOPPLER_CONFIG: dev
+
+tasks:
+  "tf:init":
+    desc: Initialize the Cloudflare OpenTofu root
+    cmds:
+      - tofu -chdir={{.ROOT_DIR}}/cloudflare init
+    preconditions:
+      - which tofu
+
+  "tf:plan":
+    desc: Plan the Cloudflare stack
+    deps: ["tf:init"]
+    cmds:
+      - doppler run --project {{.DOPPLER_PROJECT}} --config {{.DOPPLER_CONFIG}} --name-transformer tf-var -- tofu -chdir={{.ROOT_DIR}}/cloudflare plan -out=tfplan
+    preconditions:
+      - which doppler tofu
+
+  "tf:apply":
+    desc: Apply the Cloudflare stack after interactive review
+    deps: ["tf:init"]
+    cmds:
+      - doppler run --project {{.DOPPLER_PROJECT}} --config {{.DOPPLER_CONFIG}} --name-transformer tf-var -- tofu -chdir={{.ROOT_DIR}}/cloudflare apply
+    preconditions:
+      - which doppler tofu

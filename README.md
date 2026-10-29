@@ -5,6 +5,10 @@ This repository has two active, independent OpenTofu roots:
 - `proxmox/` provisions guest VMs and LXCs on the standalone `pve-00` host. It does not configure the PVE host or install Talos/Kubernetes. The PBS LXC is a Debian target; this root does not install PBS.
 - `cloudflare/` provisions the Kubernetes Cloudflare Tunnels and Zero Trust Access applications/policies. It writes tunnel credentials to Doppler project `home-dc-kubernetes` (`apps` and `infra` configs). Kubernetes `ExternalDNS` publishes application records; local DNS is served by Technitium. This root does not contain a local-DNS stack or direct DNS-record resources.
 
+## Logical overview
+
+![Logical overview of the independent OpenTofu roots and their Proxmox, Cloudflare, Doppler, and Kubernetes owners](docs/architecture.svg)
+
 Ownership boundaries:
 
 | Concern | Owner |

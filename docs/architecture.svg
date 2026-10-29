@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 960 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="terraform-architecture-title terraform-architecture-desc" id="terraform-architecture-root">
+        <title id="terraform-architecture-title">OpenTofu roots and owners</title>
+        <desc id="terraform-architecture-desc">The root Taskfile runs two independent OpenTofu roots: Proxmox guest lifecycle on pve-00 and Cloudflare Tunnels and Access; Doppler carries tunnel credentials to Kubernetes, where ExternalDNS owns application records.</desc>
+        <defs>
+      <style>#terraform-architecture-root { --color-paper: #f5f5f5; --color-paper-2: #ececec; --color-ink: #2d3142;
+      --color-muted: #4f5d75; --color-soft: #5a6580; --color-rule: rgba(45,49,66,.12);
+      --color-rule-solid: #bfc0c0; --color-accent: #bf4520;
+      --color-accent-tint: rgba(191,69,32,.08); --color-link: #2e5aa8;
+      --font-sans: 'Geist', system-ui, sans-serif;
+      --font-serif: 'Instrument Serif', 'Noto Serif', serif;
+      --font-mono: 'Geist Mono', ui-monospace, monospace; }
+      @media (prefers-color-scheme: dark) {
+#terraform-architecture-root { --color-paper: #2d3142; --color-paper-2: #393e53; --color-ink: #f5f5f5;
+        --color-muted: #bfc0c0; --color-soft: #949eb2; --color-rule: rgba(245,245,245,.12);
+        --color-rule-solid: rgba(191,192,192,.25); --color-accent: #f08a59;
+        --color-accent-tint: rgba(240,138,89,.10); --color-link: #739fdf; }
+}
+      #terraform-architecture-root { color: var(--color-ink); font-family: var(--font-sans); }
+      #terraform-architecture-root .diagram-container { width: 100%; overflow-x: auto; }
+      @media print {
+#terraform-architecture-root .diagram-container { overflow-x: visible; }
+}
+      #terraform-architecture-root .page-title { font: 400 28px/1.15 var(--font-serif); fill: var(--color-ink); }
+      #terraform-architecture-root .page-subtitle { font: 400 12px var(--font-sans); fill: var(--color-muted); }
+      #terraform-architecture-root .zone { fill: none; stroke: var(--color-rule-solid); stroke-width: .8; stroke-dasharray: 4 4; }
+      #terraform-architecture-root .zone-mask { fill: var(--color-paper); }
+      #terraform-architecture-root .zone-label { font: 500 8px var(--font-mono); letter-spacing: .14em; fill: var(--color-soft); }
+      #terraform-architecture-root .control { fill: none; stroke: var(--color-muted); stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+      #terraform-architecture-root .service { fill: none; stroke: var(--color-link); stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+      #terraform-architecture-root .node { fill: var(--color-paper); stroke: var(--color-rule-solid); stroke-width: 1; }
+      #terraform-architecture-root .node-focal { fill: var(--color-accent-tint); stroke: var(--color-accent); stroke-width: 1.2; }
+      #terraform-architecture-root .node-external { fill: var(--color-paper-2); stroke: var(--color-rule-solid); stroke-width: 1; }
+      #terraform-architecture-root .tag-box { fill: none; stroke: var(--color-rule-solid); stroke-width: .8; }
+      #terraform-architecture-root .tag-box-focal { fill: none; stroke: var(--color-accent); stroke-width: .8; }
+      #terraform-architecture-root .tag { font: 500 7px var(--font-mono); letter-spacing: .1em; fill: var(--color-muted); }
+      #terraform-architecture-root .tag-focal { font: 500 7px var(--font-mono); letter-spacing: .1em; fill: var(--color-accent); }
+      #terraform-architecture-root .node-name { font: 600 12px var(--font-sans); fill: var(--color-ink); }
+      #terraform-architecture-root .sublabel { font: 400 9px var(--font-mono); fill: var(--color-soft); }
+      #terraform-architecture-root .legend { font: 400 8px var(--font-mono); fill: var(--color-muted); letter-spacing: .04em; }</style>
+          <marker id="terraform-architecture-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6 Z" fill="var(--color-muted)"/></marker>
+          <marker id="terraform-architecture-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6 Z" fill="var(--color-link)"/></marker>
+        </defs>
+
+        <text x="40" y="32" class="eyebrow">HOME DC TERRAFORM · OPENTOFU</text>
+        <text x="40" y="70" class="page-title">Two roots, separate infrastructure owners</text>
+        <text x="40" y="96" class="page-subtitle">Guest lifecycle and Cloudflare tunnels/Access live here; Kubernetes owns DNS records, Technitium serves local DNS.</text>
+
+        <g>
+          <rect x="40" y="128" width="192" height="392" rx="8" class="zone"/>
+          <rect x="260" y="128" width="360" height="392" rx="8" class="zone"/>
+          <rect x="648" y="128" width="272" height="392" rx="8" class="zone"/>
+          <rect x="52" y="132" width="108" height="14" rx="2" class="zone-mask"/>
+          <text x="106" y="142" text-anchor="middle" class="zone-label">TASK INTERFACE</text>
+          <rect x="272" y="132" width="144" height="14" rx="2" class="zone-mask"/>
+          <text x="344" y="142" text-anchor="middle" class="zone-label">INDEPENDENT ROOTS</text>
+          <rect x="660" y="132" width="176" height="14" rx="2" class="zone-mask"/>
+          <text x="748" y="142" text-anchor="middle" class="zone-label">TARGETS + CONSUMERS</text>
+        </g>
+
+        <g>
+          <path d="M216 308 H236 Q244 308 244 300 V228 Q244 220 252 220 H280" class="control" marker-end="url(#terraform-architecture-arrow)"/>
+          <path d="M216 356 H236 Q244 356 244 364 V416 Q244 424 252 424 H280" class="control" marker-end="url(#terraform-architecture-arrow)"/>
+          <path d="M600 220 H668" class="service" marker-end="url(#terraform-architecture-arrow-link)"/>
+          <path d="M600 400 H620 Q628 400 628 392 V366 Q628 358 636 358 H668" class="service" marker-end="url(#terraform-architecture-arrow-link)"/>
+          <path d="M600 448 H620 Q628 448 628 456 V474 Q628 482 636 482 H668" class="service" marker-end="url(#terraform-architecture-arrow-link)"/>
+          <path d="M772 482 H796" class="service" marker-end="url(#terraform-architecture-arrow-link)"/>
+          <path d="M848 448 V404" class="service" marker-end="url(#terraform-architecture-arrow-link)"/>
+        </g>
+        <g>
+          <rect x="612" y="200" width="32" height="12" rx="2" class="zone-mask"/>
+          <text x="628" y="209" text-anchor="middle" class="legend">API</text>
+          <rect x="856" y="416" width="32" height="12" rx="2" class="zone-mask"/>
+          <text x="872" y="425" text-anchor="middle" class="legend">DNS</text>
+        </g>
+
+        <g>
+          <rect x="56" y="288" width="160" height="88" rx="6" class="node-focal"/>
+          <rect x="68" y="296" width="40" height="12" rx="2" class="tag-box-focal"/>
+          <text x="88" y="305" text-anchor="middle" class="tag-focal">TASKS</text>
+          <text x="68" y="332" class="node-name">Root Taskfile</text>
+          <text x="68" y="350" class="sublabel">tf:init / plan / apply</text>
+          <text x="68" y="368" class="sublabel">Cloudflare runs first</text>
+
+          <rect x="280" y="176" width="320" height="88" rx="6" class="node"/>
+          <rect x="292" y="184" width="48" height="12" rx="2" class="tag-box"/>
+          <text x="316" y="193" text-anchor="middle" class="tag">ROOT</text>
+          <text x="292" y="220" class="node-name">proxmox/</text>
+          <text x="292" y="238" class="sublabel">VM + LXC lifecycle · local state</text>
+          <text x="292" y="256" class="sublabel">uses pve-00 API credentials</text>
+
+          <rect x="280" y="376" width="320" height="88" rx="6" class="node-focal"/>
+          <rect x="292" y="384" width="48" height="12" rx="2" class="tag-box-focal"/>
+          <text x="316" y="393" text-anchor="middle" class="tag-focal">ROOT</text>
+          <text x="292" y="420" class="node-name">cloudflare/</text>
+          <text x="292" y="438" class="sublabel">Tunnels + Access · local state</text>
+          <text x="292" y="456" class="sublabel">writes tunnel creds to Doppler</text>
+
+          <rect x="668" y="176" width="232" height="88" rx="6" class="node-external"/>
+          <rect x="680" y="184" width="56" height="12" rx="2" class="tag-box"/>
+          <text x="708" y="193" text-anchor="middle" class="tag">PROXMOX</text>
+          <text x="680" y="220" class="node-name">pve-00</text>
+          <text x="680" y="238" class="sublabel">guest VM / LXC target</text>
+          <text x="680" y="256" class="sublabel">host config is Ansible-owned</text>
+
+          <rect x="668" y="312" width="232" height="92" rx="6" class="node-external"/>
+          <rect x="680" y="320" width="56" height="12" rx="2" class="tag-box"/>
+          <text x="708" y="329" text-anchor="middle" class="tag">EDGE</text>
+          <text x="680" y="356" class="node-name">Cloudflare</text>
+          <text x="680" y="376" class="sublabel">Tunnels + Access</text>
+          <text x="680" y="394" class="sublabel">app DNS via ExternalDNS</text>
+
+          <rect x="668" y="448" width="104" height="68" rx="6" class="node"/>
+          <rect x="676" y="456" width="56" height="12" rx="2" class="tag-box"/>
+          <text x="704" y="465" text-anchor="middle" class="tag">SECRETS</text>
+          <text x="676" y="484" class="node-name">Doppler</text>
+          <text x="676" y="502" class="sublabel">apps · infra</text>
+
+          <rect x="796" y="448" width="104" height="68" rx="6" class="node"/>
+          <rect x="804" y="456" width="48" height="12" rx="2" class="tag-box"/>
+          <text x="828" y="465" text-anchor="middle" class="tag">GITOPS</text>
+          <text x="804" y="484" class="node-name">Kubernetes</text>
+          <text x="804" y="502" class="sublabel">ExternalDNS</text>
+        </g>
+
+        <g>
+          <path d="M56 560 H84" class="control" marker-end="url(#terraform-architecture-arrow)"/>
+          <text x="96" y="563" class="legend">TASK ORCHESTRATION</text>
+          <path d="M280 560 H308" class="service" marker-end="url(#terraform-architecture-arrow-link)"/>
+          <text x="320" y="563" class="legend">PROVISION / SECRET / DNS FLOWS</text>
+        </g>
+      </svg>

@@ -42,45 +42,32 @@ tasks:
       - scripts/tofu.sh -chdir=proxmox apply tfplan
       - task: ensure-lxc-nesting
         vars:
-          VMID: "4019"
-      - task: ensure-lxc-nesting
-        vars:
           VMID: "4020"
       - task: access-all
 
-  smoke:
-    desc: Plan and apply only the small OpenTofu test container
-    deps: ["proxmox:tf:init"]
-    cmds:
-      - scripts/tofu.sh -chdir=proxmox plan -target=proxmox_virtual_environment_container.smoke -out=tfplan-smoke
-      - scripts/tofu.sh -chdir=proxmox apply -auto-approve tfplan-smoke
-      - task: ensure-lxc-nesting
-        vars:
-          VMID: "4019"
-      - task: access-smoke
 
   pbs-plan:
     desc: Create a review plan for the PBS LXC only
     deps: ["proxmox:tf:init"]
     cmds:
-      - scripts/tofu.sh -chdir=proxmox plan -target=proxmox_virtual_environment_container.pbs -out=tfplan-pbs
+      - scripts/tofu.sh -chdir=proxmox plan -target=proxmox_virtual_environment_container.pbs -target=terraform_data.pbs_setup -target=doppler_secret.pbs_admin_password -target=doppler_secret.pbs_backup_password -out=tfplan-pbs
 
   pbs-apply:
     desc: Apply only the PBS LXC
     deps: ["proxmox:tf:init"]
     cmds:
-      - scripts/tofu.sh -chdir=proxmox apply -target=proxmox_virtual_environment_container.pbs
+      - scripts/tofu.sh -chdir=proxmox apply -target=proxmox_virtual_environment_container.pbs -target=terraform_data.pbs_setup -target=doppler_secret.pbs_admin_password -target=doppler_secret.pbs_backup_password
       - task: ensure-lxc-nesting
         vars:
           VMID: "4020"
       - task: access-pbs
 
   ensure-lxc-nesting:
-    desc: Enable nesting on an LXC using root access to pve-00
+    desc: Ensure required PBS LXC features using root access to pve-00
     internal: true
     silent: true
     cmds:
-      - bash scripts/ensure-lxc-nesting.sh {{.VMID}}
+      - bash scripts/ensure-lxc-nesting.sh {{.VMID}} mount=nfs
 
   nodes-plan:
     desc: Create a full-stack review plan including Talos VMs
@@ -101,24 +88,9 @@ tasks:
     desc: Print access guidance for all configured guests
     silent: true
     cmds:
-      - task: access-smoke
       - task: access-pbs
       - task: access-nodes
 
-  access-smoke:
-    desc: Print smoke LXC access guidance
-    silent: true
-    cmds:
-      - |
-        printf '%s\n' \
-          'SMOKE LXC — VMID 4019' \
-          'Address: 10.0.40.19/24 on VLAN 40; reachable from VLAN 40 or routed clients.' \
-          'SSH: ssh -i ~/.ssh/id_proxmox root@10.0.40.19' \
-          'The matching public key is authorized; password login is not configured.' \
-          'If SSH reports a key mismatch, verify the fingerprint below, then run ssh-keygen -R 10.0.40.19.' \
-          'PVE console: ssh pve-00, then pct enter 4019 as root.' \
-          ''
-      - ssh pve-00 'pct exec 4019 -- ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub'
 
   access-pbs:
     desc: Print PBS LXC access guidance

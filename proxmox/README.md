@@ -2,7 +2,7 @@
 
 This is the active, independent OpenTofu root for the standalone `pve-00` host. Its state is `proxmox/terraform.tfstate`. The Kubernetes repository was not modified; its old Proxmox and service-host state snapshots are kept separately under `state-archive/` and are not loaded by these tasks.
 
-`scripts/tofu.sh` reads the PVE API token from the `iac` 1Password vault item `pve-00-terraform-api-token`. No credentials are committed.
+`scripts/tofu.sh` runs OpenTofu through `doppler run` against Doppler project `home-dc-terraform`, config `prd` (PVE API token as `PROXMOX_TOKEN_ID`/`PROXMOX_TOKEN_SECRET`; generated PBS passwords are written back as `PBS_ADMIN_PASSWORD`/`PBS_BACKUP_PASSWORD`). The only secret outside Doppler is the Doppler service token in the macOS keychain item `home-dc-doppler-tf`. No credentials are committed.
 
 ## Deployment tasks
 
@@ -13,7 +13,11 @@ task nodes-plan
 task nodes-apply
 ```
 
-- PBS: LXC 4020, `10.0.40.20/24`, untagged on `vmbr0`, `local-nvme`, 4 vCPU / 8 GiB. The PVE uplink's native/access network must be VLAN 40. `pbs-apply` creates and starts a Debian LXC target; it does not run the Community Scripts installer or install PBS.
+- PBS: LXC 4020, `10.0.40.20/24`, untagged on `vmbr0`, `local-nvme`, 4 vCPU / 8 GiB, Debian 13 (Trixie) as PBS 4 requires. `pbs-apply` creates the LXC and fully configures PBS with no manual step: `terraform_data.pbs_setup` enables the `mount=nfs` feature (root SSH to `pve-00`), copies `scripts/configure-pbs.sh` into the LXC over SSH (`~/.ssh/id_proxmox`) and runs it. The script is idempotent and re-runs whenever it or the container changes.
+- The script runs the Community Scripts PBS installer, disables the subscription-only enterprise apt repo, mounts the NAS export `10.0.40.2:/proxmox-pbs-datastore`, creates the `home-dc` datastore (a fresh directory; the legacy datastore is untouched), and creates `pbs-admin@pbs` (Admin on `/`) and `pve-backup@pbs` (DatastoreBackup + DatastoreAudit on `/datastore/home-dc`). Passwords are `random_password` resources; they are written to Doppler (`PBS_ADMIN_PASSWORD`, `PBS_BACKUP_PASSWORD`) and available through `tofu output -raw pbs_admin_password` / `pbs_backup_password`. The script can also be run by hand in the LXC, prompting for the passwords.
+- Log in to `https://10.0.40.20:8007` as user `pbs-admin`, realm **Proxmox Backup authentication server**. `root@pam` has no password.
+- Remaining manual step: add a PBS storage in the PVE UI (server `10.0.40.20`, datastore `home-dc`, user `pve-backup@pbs`, the generated password, and the TLS fingerprint printed at the end of the script run). No scheduled backup job is created; choose its guests, schedule, and retention separately.
+- PBS upstream documents directory datastores on ext4, XFS, and ZFS, but does not document NFS. This homelab already has a legacy PBS datastore on the NAS; the script creates a separate datastore and leaves the legacy 339 GiB store untouched. Verify GC and restore behavior before relying on NFS as the only backup copy.
 - Talos VMs: `nodes-plan` creates a full-stack review plan in `tfplan-nodes`; `nodes-apply` applies exactly that saved plan. Controller 4090 is configured to start on `local-nvme`; workers 4095–4097 are configured to start on `local-hdd`. Boot ISOs are Talos `v1.13.8` (matching the Kubernetes repo's `talos/app/talenv.yaml`) and cloud-init images use `nfs-proxmox-iso`.
 - Boot the installed `scsi0` disk **before** the attached Talos ISO (`ide3`). Assumption: on a fresh guest with an unbootable disk, SeaBIOS falls through to the ISO for initial installation. Once Talos installs, ISO-first boot halts the guest in installer mode; never restore that order for installed nodes. This is an in-place VM configuration update, not a disk replacement.
 
@@ -26,11 +30,10 @@ task nodes-apply
 - Talos tasks provision VMs only; they do not configure Talos or bootstrap Kubernetes. They do not mutate `home-dc-kubernetes` files or state.
 - Each worker VM receives a dedicated second data disk (`scsi1`) on `local-hdd`, default 100 GiB, controlled per node by `data_disk_size_gb` and `data_disk_storage_pool`. Controllers have no data disk. The existing system disk (`scsi0`) is unchanged.
 - Talos machine config in `home-dc-kubernetes` selects a non-system disk for a worker user volume, mounted at `/var/mnt/local-path-provisioner`. Confirm each VM has exactly one non-system disk before applying Talos; this Terraform root only provisions the guest disks.
-- The PVE API token cannot change feature flags on privileged LXCs (HTTP 403). `ensure-lxc-nesting` uses root SSH and merges `nesting=1` into the existing feature list, preserving all other flags; it reboots a container only when nesting is absent. Terraform ignores feature-flag drift; the helper is part of `pbs-apply`, `smoke`, and full apply tasks.
-- Smoke and PBS LXC SSH use the root key from `~/.ssh/id_proxmox.pub`; no password is configured. `initialization.user_account` applies only at container creation, so existing LXCs were seeded through `pct exec`. Key rotation on existing LXCs is a manual authorized-keys update.
-- PBS and smoke tasks use `-target` for isolated container operations and emit the standard targeting warning. Talos tasks use a full-stack reviewed plan; successful applies print direct SSH commands and host-key fingerprints. The PBS web UI is available at `https://10.0.40.20:8007` after installing PBS.
+- The privileged PBS LXC needs `nesting=1` and `mount=nfs`. The PVE API token cannot change feature flags on an existing privileged LXC (HTTP 403), so the root-SSH helper adds them after creation and reboots only when a feature changes.
+- PBS LXC SSH uses the root key from `~/.ssh/id_proxmox.pub`; no password is configured. `initialization.user_account` applies only at container creation, so existing LXCs were seeded through `pct exec`. Key rotation on existing LXCs is a manual authorized-keys update.
+- PBS and Talos tasks use `-target` for isolated container operations and emit the standard targeting warning. `pbs-apply` targets the container, `terraform_data.pbs_setup` and the two PBS `doppler_secret` resources, and prompts for approval, so it needs a terminal. Talos tasks use a full-stack reviewed plan; successful applies print direct SSH commands and host-key fingerprints.
 - Talos guidance lists each configured IP and VMID, labels workers as configured started, and distinguishes insecure maintenance access from authenticated `talosctl` after config/bootstrap. This root creates no `talosconfig` or VIP.
-- Smoke LXC 4019 runs Debian 12 at `10.0.40.19/24`, untagged on `vmbr0`. Its Proxmox standard LXC template is pinned by SHA-512.
 
 `task proxmox:tf:plan` creates a full Proxmox plan; `task proxmox:tf:apply` prompts before applying. `task plan-preview` creates a non-applying Proxmox plan; `task apply-existing-plan` applies the explicitly reviewed `proxmox/tfplan`. State, saved plans, and provider caches are ignored by Git.
 

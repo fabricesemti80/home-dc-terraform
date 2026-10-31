@@ -17,6 +17,5 @@ tasks:
     deps: ["tf:init"]
     cmds:
       - '{{.ROOT_DIR}}/scripts/tofu.sh -chdir={{.ROOT_DIR}}/proxmox apply'
-      - bash '{{.ROOT_DIR}}/scripts/ensure-lxc-nesting.sh' 4019
-      - bash '{{.ROOT_DIR}}/scripts/ensure-lxc-nesting.sh' 4020
+      - bash '{{.ROOT_DIR}}/scripts/ensure-lxc-nesting.sh' 4020 mount=nfs
       - task --taskfile '{{.ROOT_DIR}}/Taskfile.yml' access-all

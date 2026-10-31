@@ -1,8 +1,8 @@
 version: '3'
 
 vars:
-  DOPPLER_PROJECT: home-dc-kubernetes
-  DOPPLER_CONFIG: dev
+  DOPPLER_PROJECT: home-dc-terraform
+  DOPPLER_CONFIG: prd
 
 tasks:
   "tf:init":
@@ -16,7 +16,7 @@ tasks:
     desc: Plan the Cloudflare stack
     deps: ["tf:init"]
     cmds:
-      - doppler run --project {{.DOPPLER_PROJECT}} --config {{.DOPPLER_CONFIG}} --name-transformer tf-var -- tofu -chdir={{.ROOT_DIR}}/cloudflare plan -out=tfplan
+      - DOPPLER_TOKEN="$(security find-generic-password -a "$USER" -s home-dc-doppler-tf -w)" doppler run --project {{.DOPPLER_PROJECT}} --config {{.DOPPLER_CONFIG}} --name-transformer tf-var -- tofu -chdir={{.ROOT_DIR}}/cloudflare plan -out=tfplan
     preconditions:
       - which doppler tofu
 
@@ -24,6 +24,6 @@ tasks:
     desc: Apply the Cloudflare stack after interactive review
     deps: ["tf:init"]
     cmds:
-      - doppler run --project {{.DOPPLER_PROJECT}} --config {{.DOPPLER_CONFIG}} --name-transformer tf-var -- tofu -chdir={{.ROOT_DIR}}/cloudflare apply
+      - DOPPLER_TOKEN="$(security find-generic-password -a "$USER" -s home-dc-doppler-tf -w)" doppler run --project {{.DOPPLER_PROJECT}} --config {{.DOPPLER_CONFIG}} --name-transformer tf-var -- tofu -chdir={{.ROOT_DIR}}/cloudflare apply
     preconditions:
       - which doppler tofu

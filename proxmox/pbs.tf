@@ -56,6 +56,8 @@ resource "terraform_data" "pbs_setup" {
   triggers_replace = [
     proxmox_virtual_environment_container.pbs.id,
     filesha256("${path.module}/../scripts/configure-pbs.sh"),
+    sha256(random_password.pbs_admin.result),
+    sha256(random_password.pbs_backup.result),
   ]
 
   # Features (mount=nfs) need root on pve-00; the API token cannot set them.

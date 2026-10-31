@@ -27,7 +27,7 @@ read_secret() {
   if [[ -z $value ]]; then
     [[ -t 0 ]] || fail "Set ${variable_name} from your secret manager when running non-interactively."
     read -r -s -p "${prompt}: " value
-    printf '\n'
+    printf '\n' >&2
   fi
   [[ ${#value} -ge 8 ]] || fail "${variable_name} must contain at least 8 characters."
   printf '%s' "$value"
@@ -95,12 +95,19 @@ fi
 if ! user_exists "$ADMIN_USER"; then
   admin_password=$(read_secret PBS_ADMIN_PASSWORD 'PBS web administrator password')
   proxmox-backup-manager user create "$ADMIN_USER" --password "$admin_password" --comment 'PBS web administrator'
+elif [[ -n ${PBS_ADMIN_PASSWORD:-} ]]; then
+  # Terraform owns the password: reconcile an existing user when one is supplied.
+  admin_password=$(read_secret PBS_ADMIN_PASSWORD '')
+  proxmox-backup-manager user update "$ADMIN_USER" --password "$admin_password"
 fi
 proxmox-backup-manager acl update / Admin --auth-id "$ADMIN_USER"
 
 if ! user_exists "$BACKUP_USER"; then
   backup_password=$(read_secret PBS_BACKUP_PASSWORD 'PVE backup account password')
   proxmox-backup-manager user create "$BACKUP_USER" --password "$backup_password" --comment 'Proxmox VE backup client'
+elif [[ -n ${PBS_BACKUP_PASSWORD:-} ]]; then
+  backup_password=$(read_secret PBS_BACKUP_PASSWORD '')
+  proxmox-backup-manager user update "$BACKUP_USER" --password "$backup_password"
 fi
 proxmox-backup-manager acl update "/datastore/${DATASTORE}" DatastoreBackup --auth-id "$BACKUP_USER"
 proxmox-backup-manager acl update "/datastore/${DATASTORE}" DatastoreAudit --auth-id "$BACKUP_USER"

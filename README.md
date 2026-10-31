@@ -3,7 +3,7 @@
 This repository has two active, independent OpenTofu roots:
 
 - `proxmox/` provisions guest VMs and LXCs on the standalone `pve-00` host. It does not configure the PVE host or install Talos/Kubernetes. The PBS LXC is a Debian target; this root does not install PBS.
-- `cloudflare/` provisions the Kubernetes Cloudflare Tunnels and Zero Trust Access applications/policies. It writes tunnel credentials to Doppler project `home-dc-kubernetes` (`apps` and `infra` configs). Kubernetes `ExternalDNS` publishes application records; local DNS is served by Technitium. This root does not contain a local-DNS stack or direct DNS-record resources.
+- `cloudflare/` provisions the Kubernetes Cloudflare Tunnels and Zero Trust Access applications/policies. It publishes tunnel values to `home-dc-terraform/prd`; `home-dc-kubernetes/apps` and `infra` reference those values in Doppler. Kubernetes `ExternalDNS` publishes application records; local DNS is served by Technitium. This root does not contain a local-DNS stack or direct DNS-record resources.
 
 ## Logical overview
 
@@ -42,7 +42,9 @@ task proxmox:tf:plan
 task proxmox:tf:apply
 ```
 
-Per-root `tf:apply` tasks present a fresh interactive plan; they do not auto-approve changes. Both roots read their credentials from Doppler project `home-dc-terraform`, config `prd`, authenticated by the service token in the macOS keychain item `home-dc-doppler-tf` (see `scripts/tofu.sh` and `cloudflare/Taskfile.yml`). The only cross-project write is the Cloudflare root publishing tunnel credentials to `home-dc-kubernetes` (`apps`, `infra`) using the scoped `DOPPLER_APPS_TOKEN`/`DOPPLER_INFRA_TOKEN` stored in `prd`.
+Per-root `tf:apply` tasks present a fresh interactive plan; they do not auto-approve changes. Both roots use Doppler project `home-dc-terraform/prd`, authenticated by the service token in the macOS keychain item `home-dc-doppler-tf` (see `scripts/tofu.sh` and `cloudflare/Taskfile.yml`). The Proxmox token ID and secret reference their authoritative values in `home-dc-proxmox/prd`. Each Kubernetes config references its own `TUNNEL_CREDENTIALS_*`, `TUNNEL_ID_*`, and `TUNNEL_TOKEN_*` in `home-dc-terraform/prd`; the Cloudflare root does not access the Kubernetes project. Cross-project references require an eligible Doppler plan and resolve at read time. Check that source secrets exist and references resolve before rotating credentials or applying infrastructure; missing sources can return literal reference strings. Previously used `DOPPLER_APPS_TOKEN` and `DOPPLER_INFRA_TOKEN` are no longer consumed by this root.
+
+The Cloudflare state migration retains a local secret-bearing `cloudflare/terraform.tfstate.before-doppler-migration` backup. To roll back, restore the previous configuration and state together and replace the Kubernetes references with their previous literal values from a secure backup; do not apply the old state while the references are in place, as it manages those Kubernetes secrets directly. Review a fresh plan before any apply.
 
 For guest operations, `task nodes-plan` creates the reviewed full-stack Talos VM plan and `task nodes-apply` applies that saved plan. `task pbs-plan` and `task pbs-apply` operate on LXC 4020 at `10.0.40.20/24` and also install and configure PBS (`scripts/configure-pbs.sh`: NFS datastore, `pbs-admin@pbs` and `pve-backup@pbs`; generated passwords are written to Doppler `PBS_ADMIN_PASSWORD`/`PBS_BACKUP_PASSWORD`). See [`proxmox/README.md`](proxmox/README.md) for storage, network, and access details.
 

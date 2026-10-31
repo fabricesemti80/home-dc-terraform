@@ -35,17 +35,6 @@ variable "tunnel_secret" {
   default     = ""
 }
 
-variable "doppler_apps_token" {
-  description = "Doppler apps-config token used to publish app-cluster tunnel material."
-  type        = string
-  sensitive   = true
-}
-
-variable "doppler_infra_token" {
-  description = "Doppler infra-config token used to publish infra-cluster tunnel material."
-  type        = string
-  sensitive   = true
-}
 
 locals {
   base_domain = "krapulax.dev"

@@ -42,8 +42,8 @@ task proxmox:tf:plan
 task proxmox:tf:apply
 ```
 
-Per-root `tf:apply` tasks present a fresh interactive plan; they do not auto-approve changes. Cloudflare plan/apply uses Doppler project/config `home-dc-kubernetes/dev` as defined in `cloudflare/Taskfile.yml`.
+Per-root `tf:apply` tasks present a fresh interactive plan; they do not auto-approve changes. Both roots read their credentials from Doppler project `home-dc-terraform`, config `prd`, authenticated by the service token in the macOS keychain item `home-dc-doppler-tf` (see `scripts/tofu.sh` and `cloudflare/Taskfile.yml`). The only cross-project write is the Cloudflare root publishing tunnel credentials to `home-dc-kubernetes` (`apps`, `infra`) using the scoped `DOPPLER_APPS_TOKEN`/`DOPPLER_INFRA_TOKEN` stored in `prd`.
 
-For guest operations, `task nodes-plan` creates the reviewed full-stack Talos VM plan and `task nodes-apply` applies that saved plan. `task pbs-plan` and `task pbs-apply` operate on LXC 4020 at `10.0.40.20/24`; the LXC is a Debian target and does not become a PBS server until PBS is installed and configured separately. See [`proxmox/README.md`](proxmox/README.md) for storage, network, and access details.
+For guest operations, `task nodes-plan` creates the reviewed full-stack Talos VM plan and `task nodes-apply` applies that saved plan. `task pbs-plan` and `task pbs-apply` operate on LXC 4020 at `10.0.40.20/24` and also install and configure PBS (`scripts/configure-pbs.sh`: NFS datastore, `pbs-admin@pbs` and `pve-backup@pbs`; generated passwords are written to Doppler `PBS_ADMIN_PASSWORD`/`PBS_BACKUP_PASSWORD`). See [`proxmox/README.md`](proxmox/README.md) for storage, network, and access details.
 
 OpenTofu state, saved plans, provider caches, tunnel credential JSON, and archived state are local secret material and ignored by Git. Never commit them.

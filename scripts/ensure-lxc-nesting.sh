@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 1 || ! $1 =~ ^[0-9]+$ ]]; then
-  printf 'usage: %s <vmid>\n' "$0" >&2
+if [[ $# -lt 1 || ! $1 =~ ^[0-9]+$ ]]; then
+  printf 'usage: %s <vmid> [feature=value ...]\n' "$0" >&2
   exit 2
 fi
 vmid=$1
+shift
+required=(nesting=1 "$@")
+for feature in "${required[@]}"; do
+  case "$feature" in
+    nesting=0|nesting=1|keyctl=0|keyctl=1|fuse=0|fuse=1|mknod=0|mknod=1|mount=*) ;;
+    *) printf 'unsupported LXC feature: %s\n' "$feature" >&2; exit 2 ;;
+  esac
+done
+
 config=$(ssh pve-00 "pct config $vmid")
 features=
 while IFS= read -r line; do
@@ -18,31 +27,42 @@ while IFS= read -r line; do
 done <<< "$config"
 
 IFS=',' read -r -a flags <<< "$features"
+declare -a applied
+for i in "${!required[@]}"; do applied[$i]=0; done
 merged=
-has_nesting=0
-nesting_enabled=0
 for flag in "${flags[@]}"; do
-  case "$flag" in
-    nesting=1)
-      has_nesting=1
-      nesting_enabled=1
-      ;;
-    nesting=0)
-      has_nesting=1
-      flag=nesting=1
-      ;;
-  esac
   [[ -z $flag ]] && continue
+  key=${flag%%=*}
+  for i in "${!required[@]}"; do
+    requested=${required[$i]}
+    [[ $key == "${requested%%=*}" ]] || continue
+    if [[ $key == mount ]]; then
+      current_mount=${flag#*=}
+      requested_mount=${requested#*=}
+      case ";$current_mount;" in
+        *";$requested_mount;"*) ;;
+        *) flag="mount=${current_mount};${requested_mount}" ;;
+      esac
+    else
+      flag=$requested
+    fi
+    applied[$i]=1
+    break
+  done
   merged="${merged:+$merged,}$flag"
 done
 
-if (( nesting_enabled )); then
-  printf 'LXC %s nesting already enabled; existing feature flags preserved.\n' "$vmid"
+for i in "${!required[@]}"; do
+  if (( !applied[$i] )); then
+    merged="${merged:+$merged,}${required[$i]}"
+  fi
+done
+
+if [[ $merged == "$features" ]]; then
+  printf 'LXC %s already has required features; existing flags preserved.\n' "$vmid"
   exit 0
 fi
-if (( !has_nesting )); then
-  merged="${merged:+$merged,}nesting=1"
-fi
+
 printf -v escaped_features '%q' "$merged"
-printf 'Enabling nesting on LXC %s; preserving existing feature flags and rebooting it.\n' "$vmid"
-ssh pve-00 "pct set $vmid --features $escaped_features && pct reboot $vmid --timeout 30"
+printf 'Updating LXC %s features to %s and restarting it.\n' "$vmid" "$merged"
+ssh pve-00 "pct set $vmid --features $escaped_features && if pct status $vmid | grep -q running; then pct reboot $vmid --timeout 30; else pct start $vmid; fi"

@@ -62,6 +62,16 @@ tasks:
           VMID: "4020"
       - task: access-pbs
 
+  pbs-monitoring-plan:
+    desc: Inspect read-only PBS monitoring credential state without changes
+    cmds:
+      - python3 scripts/pbs-monitoring-credential.py
+
+  pbs-monitoring-apply:
+    desc: Provision the audit-only PBS monitoring token in Doppler
+    cmds:
+      - python3 scripts/pbs-monitoring-credential.py --apply
+
   ensure-lxc-nesting:
     desc: Ensure required PBS LXC features using root access to pve-00
     internal: true

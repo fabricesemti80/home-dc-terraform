@@ -5,24 +5,24 @@ vars:
   DOPPLER_CONFIG: prd
 
 tasks:
-  "tf:init":
+  init:
     desc: Initialize the Cloudflare OpenTofu root
     cmds:
       - tofu -chdir={{.ROOT_DIR}}/cloudflare init
     preconditions:
       - which tofu
 
-  "tf:plan":
+  plan:
     desc: Plan the Cloudflare stack
-    deps: ["tf:init"]
+    deps: ["init"]
     cmds:
       - DOPPLER_TOKEN="$(security find-generic-password -a "$USER" -s home-dc-doppler-tf -w)" doppler run --project {{.DOPPLER_PROJECT}} --config {{.DOPPLER_CONFIG}} --name-transformer tf-var -- tofu -chdir={{.ROOT_DIR}}/cloudflare plan -out=tfplan
     preconditions:
       - which doppler tofu
 
-  "tf:apply":
+  apply:
     desc: Apply the Cloudflare stack after interactive review
-    deps: ["tf:init"]
+    deps: ["init"]
     cmds:
       - DOPPLER_TOKEN="$(security find-generic-password -a "$USER" -s home-dc-doppler-tf -w)" doppler run --project {{.DOPPLER_PROJECT}} --config {{.DOPPLER_CONFIG}} --name-transformer tf-var -- tofu -chdir={{.ROOT_DIR}}/cloudflare apply
     preconditions:

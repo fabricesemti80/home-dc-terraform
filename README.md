@@ -26,23 +26,23 @@ Historical Terraform state/configuration from the former Kubernetes repository r
 Root tasks run across both active roots (Cloudflare first, then Proxmox):
 
 ```bash
-task tf:init
-task tf:plan
-task tf:apply
+task init
+task plan
+task apply
 ```
 
 Use namespaced tasks for one root:
 
 ```bash
-task cloudflare:tf:init
-task cloudflare:tf:plan
-task cloudflare:tf:apply
-task proxmox:tf:init
-task proxmox:tf:plan
-task proxmox:tf:apply
+task cloudflare:init
+task cloudflare:plan
+task cloudflare:apply
+task proxmox:init
+task proxmox:plan
+task proxmox:apply
 ```
 
-Per-root `tf:apply` tasks present a fresh interactive plan; they do not auto-approve changes. Both roots use Doppler project `home-dc-terraform/prd`, authenticated by the service token in the macOS keychain item `home-dc-doppler-tf` (see `scripts/tofu.sh` and `cloudflare/Taskfile.yml`). The Proxmox token ID and secret reference their authoritative values in `home-dc-proxmox/prd`. Each Kubernetes config references its own `TUNNEL_CREDENTIALS_*`, `TUNNEL_ID_*`, and `TUNNEL_TOKEN_*` in `home-dc-terraform/prd`; the Cloudflare root does not access the Kubernetes project. Cross-project references require an eligible Doppler plan and resolve at read time. Check that source secrets exist and references resolve before rotating credentials or applying infrastructure; missing sources can return literal reference strings. Previously used `DOPPLER_APPS_TOKEN` and `DOPPLER_INFRA_TOKEN` are no longer consumed by this root.
+Per-root `apply` tasks present a fresh interactive plan; they do not auto-approve changes. Both roots use Doppler project `home-dc-terraform/prd`, authenticated by the service token in the macOS keychain item `home-dc-doppler-tf` (see `scripts/tofu.sh` and `cloudflare/Taskfile.yml`). The Proxmox token ID and secret reference their authoritative values in `home-dc-proxmox/prd`. Each Kubernetes config references its own `TUNNEL_CREDENTIALS_*`, `TUNNEL_ID_*`, and `TUNNEL_TOKEN_*` in `home-dc-terraform/prd`; the Cloudflare root does not access the Kubernetes project. Cross-project references require an eligible Doppler plan and resolve at read time. Check that source secrets exist and references resolve before rotating credentials or applying infrastructure; missing sources can return literal reference strings. Previously used `DOPPLER_APPS_TOKEN` and `DOPPLER_INFRA_TOKEN` are no longer consumed by this root.
 
 The Cloudflare state migration retains a local secret-bearing `cloudflare/terraform.tfstate.before-doppler-migration` backup. To roll back, restore the previous configuration and state together and replace the Kubernetes references with their previous literal values from a secure backup; do not apply the old state while the references are in place, as it manages those Kubernetes secrets directly. Review a fresh plan before any apply.
 

@@ -79,7 +79,7 @@
           <rect x="68" y="296" width="40" height="12" rx="2" class="tag-box-focal"/>
           <text x="88" y="305" text-anchor="middle" class="tag-focal">TASKS</text>
           <text x="68" y="332" class="node-name">Root Taskfile</text>
-          <text x="68" y="350" class="sublabel">tf:init / plan / apply</text>
+          <text x="68" y="350" class="sublabel">init / plan / apply</text>
           <text x="68" y="368" class="sublabel">Cloudflare runs first</text>
 
           <rect x="280" y="176" width="320" height="88" rx="6" class="node"/>

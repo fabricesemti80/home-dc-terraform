@@ -7,23 +7,23 @@ includes:
     taskfile: ./cloudflare/Taskfile.yml
 
 tasks:
-  "tf:init":
+  init:
     desc: Initialize all OpenTofu roots
     cmds:
-      - task: cloudflare:tf:init
-      - task: proxmox:tf:init
+      - task: cloudflare:init
+      - task: proxmox:init
 
-  "tf:plan":
+  plan:
     desc: Plan all OpenTofu roots
     cmds:
-      - task: cloudflare:tf:plan
-      - task: proxmox:tf:plan
+      - task: cloudflare:plan
+      - task: proxmox:plan
 
-  "tf:apply":
+  apply:
     desc: Apply all OpenTofu roots with per-root interactive confirmation
     cmds:
-      - task: cloudflare:tf:apply
-      - task: proxmox:tf:apply
+      - task: cloudflare:apply
+      - task: proxmox:apply
 
   default:
     cmds: [task --list]
@@ -31,7 +31,7 @@ tasks:
 
   plan-preview:
     desc: Create a non-applying full-stack plan for review
-    deps: ["proxmox:tf:init"]
+    deps: ["proxmox:init"]
     cmds:
       - scripts/tofu.sh -chdir=proxmox plan -out=tfplan-preview
 
@@ -48,13 +48,13 @@ tasks:
 
   pbs-plan:
     desc: Create a review plan for the PBS LXC only
-    deps: ["proxmox:tf:init"]
+    deps: ["proxmox:init"]
     cmds:
       - scripts/tofu.sh -chdir=proxmox plan -target=proxmox_virtual_environment_container.pbs -target=terraform_data.pbs_setup -target=doppler_secret.pbs_admin_password -target=doppler_secret.pbs_backup_password -out=tfplan-pbs
 
   pbs-apply:
     desc: Apply only the PBS LXC
-    deps: ["proxmox:tf:init"]
+    deps: ["proxmox:init"]
     cmds:
       - scripts/tofu.sh -chdir=proxmox apply -target=proxmox_virtual_environment_container.pbs -target=terraform_data.pbs_setup -target=doppler_secret.pbs_admin_password -target=doppler_secret.pbs_backup_password
       - task: ensure-lxc-nesting
@@ -81,13 +81,13 @@ tasks:
 
   nodes-plan:
     desc: Create a full-stack review plan including Talos VMs
-    deps: ["proxmox:tf:init"]
+    deps: ["proxmox:init"]
     cmds:
       - scripts/tofu.sh -chdir=proxmox plan -out=tfplan-nodes
 
   nodes-apply:
     desc: Apply exactly the reviewed full-stack plan from nodes-plan
-    deps: ["proxmox:tf:init"]
+    deps: ["proxmox:init"]
     cmds:
       - test -f proxmox/tfplan-nodes
       - scripts/tofu.sh -chdir=proxmox apply tfplan-nodes

@@ -73,9 +73,9 @@ def main():
         if stored_id != FULL_ID or not stored_secret:
             raise RuntimeError("Stored PBS credential does not match the intended token")
     wanted = (USER, FULL_ID) if token else (USER,)
-    missing_acl = [subject for subject in wanted if not any(a.get("ugid") == subject and a.get("path") == "/" and a.get("roleid") == "Audit" for a in acls)]
+    missing_acl = [subject for subject in wanted if not any(a.get("ugid") == subject and a.get("path") == "/" and a.get("roleid") == "Audit" and a.get("propagate") is True for a in acls)]
     if not args.apply:
-        print(f"PBS credential plan: user={'present' if user else 'create'}, token={'present' if token else 'create'}, missing audit grants={len(missing_acl)}. No changes made.")
+        print(f"PBS credential plan: user={'present' if user else 'create'}, token={'present' if token else 'create'}, missing or non-propagating audit grants={len(missing_acl)}. No changes made.")
         return
     if token and not missing_acl:
         print("PBS monitoring token and audit grants already configured; no changes made.")
@@ -83,10 +83,10 @@ def main():
     if not user:
         remote("user", "create", USER, "--comment", "Read-only monitoring API token")
     if USER in missing_acl:
-        remote("acl", "update", "/", "Audit", "--auth-id", USER)
+        remote("acl", "update", "/", "Audit", "--auth-id", USER, "--propagate", "true")
     if token:
         if FULL_ID in missing_acl:
-            remote("acl", "update", "/", "Audit", "--auth-id", FULL_ID)
+            remote("acl", "update", "/", "Audit", "--auth-id", FULL_ID, "--propagate", "true")
         print("Restored missing read-only PBS token ACL.")
         return
     try:
@@ -97,7 +97,7 @@ def main():
         created = json.loads(output[start:])
         if created.get("tokenid") != FULL_ID or not created.get("value"):
             raise RuntimeError("PBS returned an unexpected token identity")
-        remote("acl", "update", "/", "Audit", "--auth-id", FULL_ID)
+        remote("acl", "update", "/", "Audit", "--auth-id", FULL_ID, "--propagate", "true")
         doppler(env, "secrets", "set", SECRET_NAME, "--no-interactive", data=created["value"])
         doppler(env, "secrets", "set", ID_NAME, "--no-interactive", data=FULL_ID)
     except Exception as exc:

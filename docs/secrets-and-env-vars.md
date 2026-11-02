@@ -62,6 +62,10 @@ Non-secret inputs (`proxmox_endpoint`, `nodes`, `gateway`, `talos_version`, `dns
 | `TF_VAR_*` | OpenTofu | Injected by `doppler run --name-transformer tf-var` | Terraform inputs (see the inputs table above). |
 | `USER` | Keychain lookups | Shell | Keychain account name. |
 | `PBS_ADMIN_PASSWORD`, `PBS_BACKUP_PASSWORD` | `scripts/configure-pbs.sh` (inside LXC 4020) | Set inline by the `terraform_data.pbs_setup` provisioner, or prompted when run by hand | Initial PBS account passwords. |
+| `DEBIAN_FRONTEND` (`noninteractive`) | `apt-get` in `scripts/configure-pbs.sh` | Exported by the script | Non-interactive package installation in LXC 4020. |
+| `MODE` (`default`), `PASSWORD` (`preserve`), `app` (`proxmox-backup-server`) | Community Scripts PBS installer (`proxmox-backup-server-install.sh`) | Exported by `scripts/configure-pbs.sh` before the first install | Installer settings. `PASSWORD=preserve` keeps the container root account locked; PBS access uses dedicated PBS users. Not a secret. |
+| `COMMUNITY_SCRIPTS_CORE_URL` | Community Scripts installer | Exported by `scripts/configure-pbs.sh` from its pinned `CORE_URL` | Base URL of the pinned installer core. |
+| `FUNCTIONS_FILE_PATH` | Community Scripts installer | Exported by `scripts/configure-pbs.sh`: the contents of `${CORE_URL}/lxc/install.func` | Installer helper functions from the pinned core. Changing `CORE_URL` changes the code that runs as root. |
 
 ## Rotation notes
 

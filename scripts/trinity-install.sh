@@ -7,7 +7,7 @@ set -euo pipefail
 auto=0; [[ ${1:-} == --auto ]] && auto=1
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
-nix_hosts=$(cd "$repo_root/../nix-hosts" && pwd)
+# The sibling nix-hosts checkout is resolved only once an install is actually needed.
 host=10.0.40.50
 key=$HOME/.ssh/id_proxmox
 ssh_opts=(-i "$key" -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5
@@ -49,6 +49,10 @@ ssh "${ssh_opts[@]}" "debian@$host" 'test "$(lsblk -bdno SIZE /dev/sda)" = 85899
   echo 'Target /dev/sda is not the expected 80 GiB disk; refusing.' >&2; exit 1; }
 
 echo "Verified Trinity bootstrap (VM 4050, MAC $mac, /dev/sda 80 GiB). Installing NixOS..."
+nix_hosts=$(cd "$repo_root/../nix-hosts" 2>/dev/null && pwd) || {
+  echo "Companion checkout ../nix-hosts not found (expected next to this repository); cannot install Trinity." >&2
+  exit 1
+}
 cd "$nix_hosts"
 nix run github:nix-community/nixos-anywhere -- \
   --flake path:.#trinity --build-on remote --copy-host-keys \

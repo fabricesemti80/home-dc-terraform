@@ -62,6 +62,7 @@ Non-secret inputs (`proxmox_endpoint`, `nodes`, `gateway`, `talos_version`, `dns
 | `DOPPLER_TOKEN` | `scripts/tofu.sh`, `cloudflare/Taskfile.yml`, `scripts/pbs-monitoring-credential.py`, Doppler provider | Optional override; otherwise read from Keychain `home-dc-doppler-tf` | Doppler service token. |
 | `TF_VAR_*` | OpenTofu | Injected by `doppler run --name-transformer tf-var` | Terraform inputs (see the inputs table above). |
 | `USER` | Keychain lookups | Shell | Keychain account name. |
+| `HOME` | `scripts/trinity-install.sh` | Shell | Locates the bootstrap private key `~/.ssh/id_proxmox` used for the temporary Debian login. Path only, not a secret. |
 | `PBS_ADMIN_PASSWORD`, `PBS_BACKUP_PASSWORD` | `scripts/configure-pbs.sh` (inside LXC 4020) | Set inline by the `terraform_data.pbs_setup` provisioner, or prompted when run by hand | Initial PBS account passwords. |
 | `DEBIAN_FRONTEND` (`noninteractive`) | `apt-get` in `scripts/configure-pbs.sh` | Exported by the script | Non-interactive package installation in LXC 4020. |
 | `MODE` (`default`), `PASSWORD` (`preserve`), `app` (`proxmox-backup-server`) | Community Scripts PBS installer (`proxmox-backup-server-install.sh`) | Exported by `scripts/configure-pbs.sh` before the first install | Installer settings. `PASSWORD=preserve` keeps the container root account locked; PBS access uses dedicated PBS users. Not a secret. |

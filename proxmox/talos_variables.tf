@@ -35,7 +35,6 @@ variable "nodes" {
     storage_pool           = optional(string, "local-nvme")
   }))
 }
-
 variable "gateway" {
   type    = string
   default = "10.0.40.1"

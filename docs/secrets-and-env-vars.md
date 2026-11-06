@@ -23,7 +23,7 @@ Both roots run under `doppler run --project home-dc-terraform --config prd --nam
 | `PROXMOX_TOKEN_ID` | `proxmox_token_id` | `proxmox/` | **Reference** to `home-dc-proxmox/prd` | ID of the `terraform@pve!provisioning` API token. |
 | `PROXMOX_TOKEN_SECRET` | `proxmox_token_secret` | `proxmox/` | **Reference** to `home-dc-proxmox/prd` | Secret of that token. Rotated by the `home-dc-proxmox` Ansible role, not here. |
 
-Non-secret inputs (`proxmox_endpoint`, `nodes`, `gateway`, `talos_version`, `dns_servers`, `talos_image_type`, tunnel names) have defaults in the `.tf` files. Any of them can still be overridden by a Doppler secret with the matching name.
+Non-secret inputs (`proxmox_endpoint`, `nodes`, `gateway`, `talos_version`, `dns_servers`, `talos_image_type`, tunnel names) have defaults in the `.tf` files. Any of them can still be overridden by a Doppler secret with the matching name. The Trinity installer ISO is downloaded directly by Proxmox from its pinned official URL; it requires no local path variable or operator-supplied environment variable.
 
 ## Outputs written to Doppler `home-dc-terraform/prd`
 
@@ -47,8 +47,9 @@ Non-secret inputs (`proxmox_endpoint`, `nodes`, `gateway`, `talos_version`, `dns
 | Item | Location | Function |
 | --- | --- | --- |
 | Doppler service token | macOS Keychain, service `home-dc-doppler-tf`, account `$USER` | Authenticates `doppler run`, the Doppler provider and the PBS monitoring script. |
-| SSH key pair | `~/.ssh/id_proxmox`, `~/.ssh/id_proxmox.pub` | Public key injected into LXC 4020. Private key used by the `pbs_setup` remote-exec provisioner. |
-| SSH access to `pve-00` | Operator's SSH config / agent | `scripts/ensure-lxc-nesting.sh`, `scripts/pbs-monitoring-credential.py`, `access-*` tasks. |
+| SSH key pair | `~/.ssh/id_proxmox`, `~/.ssh/id_proxmox.pub` | Public key injected into LXC 4020 and, via cloud-init, into Trinity's temporary Debian bootstrap user `debian` (`proxmox/trinity.tf`). Private key used by the `pbs_setup` remote-exec provisioner and `scripts/trinity-install.sh` (nixos-anywhere bootstrap login). |
+| SSH access to `pve-00` | Operator's SSH config / agent | `scripts/ensure-lxc-nesting.sh`, `scripts/pbs-monitoring-credential.py`, `scripts/trinity-install.sh`, Trinity VM tasks, `access-*` tasks. |
+| Trinity SSH access | Installed host trusts the public keys in `../nix-hosts/users/fs.nix`; private keys stay in the operator's SSH agent/key files | `proxmox:trinity-ssh`, `trinity-status` and `trinity-configure` log in as `fs@10.0.40.50`. No private key or password enters Terraform or Git. |
 | `cloudflare-tunnel.json`, `cloudflare-tunnel-infra.json` | Repo root, Git-ignored (`local_file` resources) | Local copies of the tunnel credentials JSON. |
 | `*.tfstate*`, `tfplan*`, `*.tfvars` | Each root, Git-ignored | State and plans hold secret values in plaintext (tunnel secrets, PBS passwords). |
 | `cloudflare/terraform.tfstate.before-doppler-migration` | Local, Git-ignored | Secret-bearing rollback backup from the Doppler migration. |
@@ -61,6 +62,7 @@ Non-secret inputs (`proxmox_endpoint`, `nodes`, `gateway`, `talos_version`, `dns
 | `DOPPLER_TOKEN` | `scripts/tofu.sh`, `cloudflare/Taskfile.yml`, `scripts/pbs-monitoring-credential.py`, Doppler provider | Optional override; otherwise read from Keychain `home-dc-doppler-tf` | Doppler service token. |
 | `TF_VAR_*` | OpenTofu | Injected by `doppler run --name-transformer tf-var` | Terraform inputs (see the inputs table above). |
 | `USER` | Keychain lookups | Shell | Keychain account name. |
+| `HOME` | `scripts/trinity-install.sh` | Shell | Locates the bootstrap private key `~/.ssh/id_proxmox` used for the temporary Debian login. Path only, not a secret. |
 | `PBS_ADMIN_PASSWORD`, `PBS_BACKUP_PASSWORD` | `scripts/configure-pbs.sh` (inside LXC 4020) | Set inline by the `terraform_data.pbs_setup` provisioner, or prompted when run by hand | Initial PBS account passwords. |
 | `DEBIAN_FRONTEND` (`noninteractive`) | `apt-get` in `scripts/configure-pbs.sh` | Exported by the script | Non-interactive package installation in LXC 4020. |
 | `MODE` (`default`), `PASSWORD` (`preserve`), `app` (`proxmox-backup-server`) | Community Scripts PBS installer (`proxmox-backup-server-install.sh`) | Exported by `scripts/configure-pbs.sh` before the first install | Installer settings. `PASSWORD=preserve` keeps the container root account locked; PBS access uses dedicated PBS users. Not a secret. |

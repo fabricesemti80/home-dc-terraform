@@ -36,7 +36,29 @@ task nodes-apply
 - PBS and Talos tasks use `-target` for isolated container operations and emit the standard targeting warning. `pbs-apply` targets the container, `terraform_data.pbs_setup` and the two PBS `doppler_secret` resources, and prompts for approval, so it needs a terminal. Talos tasks use a full-stack reviewed plan; successful applies print direct SSH commands and host-key fingerprints.
 - Talos guidance lists each configured IP and VMID, labels workers as configured started, and distinguishes insecure maintenance access from authenticated `talosctl` after config/bootstrap. This root creates no `talosconfig` or VIP.
 
-`task proxmox:plan` creates a full Proxmox plan; `task proxmox:apply` prompts before applying. `task plan-preview` creates a non-applying Proxmox plan; `task apply-existing-plan` applies the explicitly reviewed `proxmox/tfplan`. State, saved plans, and provider caches are ignored by Git.
+## Trinity NixOS VM
+
+Trinity is a separate generic VM, not part of the Talos module: VMID 4050 (`trinity`) on `pve-00`, 4 vCPU, 8 GiB RAM, 80 GiB `local-nvme`, x86_64 UEFI. Its NIC uses `vmbr0` untagged. `pve-00`'s `vmbr0` is a bridge over `nic0` without VLAN-aware configuration; VLAN 40 is the native untagged network, so do not set `vlan_id = 40`. The address is `10.0.40.50/24`, gateway `10.0.40.1`.
+
+Deployment is two commands, with one confirmation prompt and no console or GUI step:
+
+```bash
+task proxmox:trinity-plan     # optional review, no changes
+task proxmox:trinity-deploy   # create VM, wait for SSH, install NixOS, verify
+```
+
+How it works:
+
+1. OpenTofu has Proxmox download a pinned Debian 13 cloud image (SHA-512 verified) into `nfs-proxmox-iso` (`import` content) and creates VM 4050 from it. Proxmox cloud-init sets the static address, DNS and the public key `~/.ssh/id_proxmox.pub` for the bootstrap user `debian` (passwordless sudo).
+2. `scripts/trinity-install.sh` waits for SSH and refuses unless the target is the fresh Debian bootstrap: VM named `trinity` with an 80 GiB disk, the guest NIC matches the MAC Proxmox reports, `/dev/sda` is exactly 80 GiB, and `/etc/NIXOS` is absent. An already-installed NixOS Trinity is never reinstalled.
+3. `nixos-anywhere --build-on remote --copy-host-keys` kexecs into a NixOS installer on the VM, partitions it with disko and installs `path:.#trinity` from `../nix-hosts`. The Mac builds nothing. Disko erases the bootstrap disk, which is intended.
+4. `task proxmox:trinity-status` confirms the installed system over SSH as `fs@10.0.40.50`.
+
+The VM resource ignores changes to `started`, `disk`, `initialization`, `efi_disk` and `boot_order`, so a later apply never alters an installed host. Terraform owns only the VM hardware and bootstrap disk; the OS is owned by `nix-hosts` and configured with `task proxmox:trinity-configure` (`just nixos-switch trinity`). Other tasks: `trinity-ssh`, `trinity-start`, `trinity-install` (install only) and `trinity-console` (Proxmox web console, troubleshooting only).
+
+Rebuilding Trinity (`tofu apply -replace=proxmox_virtual_environment_vm.trinity`) destroys its disk and repeats the bootstrap. The Debian image URL is dated; if cloud.debian.org rotates that build away, update `url`, `file_name` and `checksum` in `proxmox/trinity.tf`.
+
+`task proxmox:plan` creates a full Proxmox plan; `task proxmox:apply` prompts once, applies, and then runs `scripts/trinity-install.sh --auto`: it installs NixOS on a freshly created Trinity bootstrap VM, and quietly skips when Trinity is absent or already runs NixOS (identity mismatches still fail). So `task proxmox:plan` followed by `task proxmox:apply` is the whole Trinity deployment, including after deleting the VM. `task plan-preview` creates a non-applying Proxmox plan; `task apply-existing-plan` applies the explicitly reviewed `proxmox/tfplan`. State, saved plans, and provider caches are ignored by Git.
 
 ## Capacity, backup, and validation
 

@@ -13,9 +13,57 @@ tasks:
       - '{{.ROOT_DIR}}/scripts/tofu.sh -chdir={{.ROOT_DIR}}/proxmox plan -out=tfplan'
 
   apply:
-    desc: Apply the full Proxmox stack after confirmation
+    desc: Apply the full Proxmox stack after confirmation; installs NixOS on a fresh Trinity bootstrap VM
     deps: ["init"]
     cmds:
       - '{{.ROOT_DIR}}/scripts/tofu.sh -chdir={{.ROOT_DIR}}/proxmox apply'
       - bash '{{.ROOT_DIR}}/scripts/ensure-lxc-nesting.sh' 4020 mount=nfs
+      - bash '{{.ROOT_DIR}}/scripts/trinity-install.sh' --auto
       - task --taskfile '{{.ROOT_DIR}}/Taskfile.yml' access-all
+
+
+  trinity-plan:
+    desc: Review the Trinity VM and Debian bootstrap image plan (no changes)
+    deps: ["init"]
+    cmds:
+      - '{{.ROOT_DIR}}/scripts/tofu.sh -chdir={{.ROOT_DIR}}/proxmox plan -target=proxmox_download_file.trinity_debian_image -target=proxmox_virtual_environment_vm.trinity'
+
+  trinity-deploy:
+    desc: Create Trinity (one confirmation), then wait for SSH and install NixOS
+    deps: ["init"]
+    cmds:
+      - '{{.ROOT_DIR}}/scripts/tofu.sh -chdir={{.ROOT_DIR}}/proxmox apply -target=proxmox_download_file.trinity_debian_image -target=proxmox_virtual_environment_vm.trinity'
+      - bash '{{.ROOT_DIR}}/scripts/trinity-install.sh'
+      - task: trinity-status
+
+  trinity-install:
+    desc: Install NixOS on an existing Debian-bootstrapped Trinity (refuses installed hosts)
+    cmds:
+      - bash '{{.ROOT_DIR}}/scripts/trinity-install.sh'
+
+  trinity-start:
+    desc: Start Trinity VM 4050 if stopped
+    cmds:
+      - |
+        ssh pve-00 'set -e; state=$(qm status 4050); if [ "$state" != "status: running" ]; then qm start 4050; fi'
+
+  trinity-console:
+    desc: Open the Trinity Proxmox web console for troubleshooting (login may be required)
+    cmds:
+      - open 'https://10.0.40.10:8006/?console=kvm&novnc=1&vmid=4050&node=pve-00&resize=off'
+
+  trinity-ssh:
+    desc: SSH to Trinity
+    cmds:
+      - ssh -o StrictHostKeyChecking=accept-new fs@10.0.40.50
+
+  trinity-status:
+    desc: Show Trinity Proxmox and guest SSH status
+    cmds:
+      - ssh pve-00 'qm status 4050'
+      - ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new fs@10.0.40.50 'hostname; nixos-version'
+
+  trinity-configure:
+    desc: Configure Trinity from the nix-hosts checkout using its existing just task
+    cmds:
+      - just --justfile '{{.ROOT_DIR}}/../nix-hosts/justfile' nixos-switch trinity

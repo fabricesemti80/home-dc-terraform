@@ -74,36 +74,59 @@ if command -v pvs >/dev/null && pvs --noheadings -o pv_name 2>/dev/null | grep -
   echo "ERROR: $real is an LVM physical volume" >&2; exit 1
 fi
 
-# Guard 2: referenced by any VM or container config?
-current=
-for conf in /etc/pve/qemu-server/*.conf /etc/pve/lxc/*.conf /etc/pve/nodes/*/qemu-server/*.conf /etc/pve/nodes/*/lxc/*.conf; do
-  [[ -f $conf ]] || continue
-  id=$(basename "$conf" .conf)
-  # Only the active section of the config (snapshot and [PENDING] sections follow a "[name]" header).
-  active=$(awk '/^\[/{exit} {print}' "$conf")
-  for a in "${aliases[@]}"; do
-    hit=$(printf '%s\n' "$active" | grep -E "^[a-z]+[0-9]*: ${a}(,|$)" || true)
-    [[ -n $hit ]] || continue
-    if [[ $id == "$vmid" && $hit == "$slot:"* ]]; then
-      current=$hit
-    else
-      echo "ERROR: $byid is already referenced by $conf ($hit)" >&2; exit 1
-    fi
+# BEGIN config guards (extracted and unit-tested with synthetic configs; keep self-contained)
+# Current settings plus the [PENDING] section, excluding [snapshot] sections. Pending
+# assignments are real claims on a disk or slot (they apply at the next stop/start).
+active_config() {
+  awk '
+    /^\[/ { in_pending = ($0 == "[PENDING]"); in_snapshot = !in_pending; next }
+    !in_snapshot { print }
+  ' "$1"
+}
+
+# Guard 2: referenced by any VM or container config (current or pending)?
+# Guard 3: scsi slot free (current, pending assignment or pending delete) unless it is our disk.
+# Uses: aliases[] vmid slot byid; PVE_ROOT (default /etc/pve). Sets: current. Exits 1 on conflict.
+check_config_guards() {
+  local root=${PVE_ROOT:-/etc/pve} conf id active a hit line
+  current=
+  for conf in "$root"/qemu-server/*.conf "$root"/lxc/*.conf "$root"/nodes/*/qemu-server/*.conf "$root"/nodes/*/lxc/*.conf; do
+    [[ -f $conf ]] || continue
+    id=$(basename "$conf" .conf)
+    active=$(active_config "$conf")
+    for a in "${aliases[@]}"; do
+      hit=$(printf '%s\n' "$active" | grep -E "^[a-z]+[0-9]*: ${a}(,|$)" || true)
+      [[ -n $hit ]] || continue
+      while IFS= read -r line; do
+        if [[ $id == "$vmid" && $line == "$slot:"* ]]; then
+          current=$line
+        else
+          echo "ERROR: $byid is already referenced by $conf ($line)" >&2; return 1
+        fi
+      done <<< "$hit"
+    done
   done
-done
+
+  active=$(active_config "$root/qemu-server/$vmid.conf")
+  while IFS= read -r line; do
+    [[ -n $line ]] || continue
+    for a in "${aliases[@]}"; do
+      [[ $line == "$slot: ${a}"[,]* || $line == "$slot: ${a}" ]] && continue 2
+    done
+    echo "ERROR: VM $vmid slot $slot is already used by something else: $line" >&2; return 1
+  done < <(printf '%s\n' "$active" | grep -E "^${slot}:" || true)
+  if printf '%s\n' "$active" | grep -qE "^delete:.*(^|[ ,;])${slot}([ ,;]|$)"; then
+    echo "ERROR: VM $vmid has a pending delete of $slot; stop/start the VM first." >&2; return 1
+  fi
+}
+# END config guards
+check_config_guards
 
 if [[ -n $current ]]; then
   echo "OK: $byid already attached to VM $vmid as $slot ($current); nothing to do."
   qm pending "$vmid" 2>/dev/null | grep -E "^(new|del)[[:space:]]+: ?${slot}" >/dev/null \
     && echo "NOTE: $slot has a pending change; stop and start VM $vmid to apply it." || true
   exit 0
-fi
-
-# Guard 3: the slot must be free in the active config and in pending changes.
-if awk '/^\[/{exit} {print}' "/etc/pve/qemu-server/$vmid.conf" | grep -qE "^${slot}:"; then
-  echo "ERROR: VM $vmid slot $slot is already used by something else:" >&2
-  awk '/^\[/{exit} {print}' "/etc/pve/qemu-server/$vmid.conf" | grep -E "^${slot}:" >&2
-  exit 1
 fi
 
 opts="$dev,backup=0,discard=on,ssd=1,serial=$serial"

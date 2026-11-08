@@ -30,11 +30,42 @@ task nodes-apply
 - Before applying a worker GPU passthrough handoff, shut down both donor and recipient VMs in Proxmox. Host-PCI changes can reboot running VMs, and the VM updates are independent; `started = true` may start them again during apply. This is an operator step, not automated.
 - Talos tasks provision VMs only; they do not configure Talos or bootstrap Kubernetes. They do not mutate `home-dc-kubernetes` files or state.
 - Each worker VM receives a dedicated second data disk (`scsi1`) on `local-hdd`, default 100 GiB, controlled per node by `data_disk_size_gb` and `data_disk_storage_pool`. Controllers have no data disk. The existing system disk (`scsi0`) is unchanged.
-- Talos machine config in `home-dc-kubernetes` selects a non-system disk for a worker user volume, mounted at `/var/mnt/local-path-provisioner`. Confirm each VM has exactly one non-system disk before applying Talos; this Terraform root only provisions the guest disks.
+- Talos machine config in `home-dc-kubernetes` selects a non-system disk for a worker user volume, mounted at `/var/mnt/local-path-provisioner`. Each worker now has **two** non-system disks (see [Raw SSD passthrough](#raw-ssd-passthrough-for-longhorn-scsi2)): the 100 GiB `local-hdd` data disk (`scsi1`) and, when `passthrough_disk_by_id` is set, a ~465 GiB whole SSD (`scsi2`). Talos must therefore select disks by size/serial and never by "the only non-system disk"; the local-path `diskSelector` must match only the 100 GiB disk. This Terraform root only provisions the guest disks.
 - The privileged PBS LXC needs `nesting=1` and `mount=nfs`. The PVE API token cannot change feature flags on an existing privileged LXC (HTTP 403), so the root-SSH helper adds them after creation and reboots only when a feature changes.
 - PBS LXC SSH uses the root key from `~/.ssh/id_proxmox.pub`; no password is configured. `initialization.user_account` applies only at container creation, so existing LXCs were seeded through `pct exec`. Key rotation on existing LXCs is a manual authorized-keys update.
 - PBS and Talos tasks use `-target` for isolated container operations and emit the standard targeting warning. `pbs-apply` targets the container, `terraform_data.pbs_setup` and the two PBS `doppler_secret` resources, and prompts for approval, so it needs a terminal. Talos tasks use a full-stack reviewed plan; successful applies print direct SSH commands and host-key fingerprints.
 - Talos guidance lists each configured IP and VMID, labels workers as configured started, and distinguishes insecure maintenance access from authenticated `talosctl` after config/bootstrap. This root creates no `talosconfig` or VIP.
+
+## Raw SSD passthrough for Longhorn (`scsi2`)
+
+Each worker can get one whole host SSD as a raw passthrough disk for Longhorn, selected per node with the optional `passthrough_disk_by_id` field of `nodes` (default: none, so controllers and other workers are unaffected). `nodes.auto.tfvars` is git-ignored, so add the field to the three worker entries locally:
+
+| VM | Node | `passthrough_disk_by_id` |
+| --- | --- | --- |
+| 4095 | `k8s-wrkr-01-gpu` | `ata-CT500MX500SSD1_2344E8836BF7` |
+| 4096 | `k8s-wrkr-02` | `ata-CT500MX500SSD1_2344E8836D00` |
+| 4097 | `k8s-wrkr-03` | `ata-CT500MX500SSD1_2349E8875927` |
+
+Always the bare name under `/dev/disk/by-id/` (never `sdX`, never a `-partN` partition; validated). Each id may be used by one node only, and only on workers. The guest sees a ~465 GiB disk (`scsi2`, `ssd=1`, `discard=on`, `backup=0` so PBS jobs never copy it, guest serial = the drive serial, e.g. `2344E8836BF7`). The 100 GiB data disk (`scsi1`) and the 55 GiB system disk (`scsi0`) are not touched.
+
+**Why a script and not a provider `disk` block.** Proxmox only lets a real `root@pam` session assign host block devices ("only root can pass arbitrary filesystem paths"); API tokens are rejected, including a token owned by `root@pam`. This root authenticates with an API token and holds no root password, so the provider's `disk { path_in_datastore = "/dev/disk/by-id/..." }` cannot work here. Following the PBS pattern, `terraform_data.passthrough_disk` (in `modules/talos`) runs `scripts/ensure-vm-passthrough-disk.sh` over root SSH to the node (`ssh pve-00`, same access as `ensure-lxc-nesting.sh`). The script:
+
+- is idempotent: if the disk is already attached to that VM on `scsi2` it does nothing;
+- refuses when the by-id link is missing or not a whole disk, any partition is mounted, swap is active, the disk is in a ZFS pool, an LVM PV or has a device-mapper/md device on it, the disk is referenced by any other VM or LXC config, or `scsi2` is already in use by something else;
+- only ever runs `qm set <vmid> --scsi2 /dev/disk/by-id/...`; it never wipes, formats, detaches, stops or restarts. Old signatures on the SSDs are cleared by the guarded Ansible role in `home-dc-proxmox`, not here. `DRY_RUN=1 scripts/ensure-vm-passthrough-disk.sh pve-00 4096 scsi2 ata-CT500MX500SSD1_2344E8836D00` runs all guards read-only and prints the command.
+
+**No drift / no replacement.** The provider reads every disk of a VM into state, so an unmanaged `scsi2` would make each plan propose removing that disk block (verified with a synthetic state that contained `scsi2`). The VM resource therefore uses `lifecycle { ignore_changes = [disk] }` (previously `[disk[0].file_id]`). Consequence: Terraform no longer reports or applies changes to `scsi0`/`scsi1` (for example a size change in `disk_size_gb`/`data_disk_size_gb`) on existing VMs; initial creation still honours them. Resize or replace disks deliberately (for example `qm resize` or `-replace`) and review the plan by hand.
+
+**Plan evidence** (`task nodes-plan`, against the live API with a refreshed state): `Plan: 3 to add, 0 to change, 0 to destroy.`, the three adds being `module.talos.terraform_data.passthrough_disk["k8s-wrkr-01-gpu"|"k8s-wrkr-02"|"k8s-wrkr-03"]`. No `proxmox_virtual_environment_vm` is changed or replaced.
+
+**Operator steps (not run by this change).**
+
+1. Make sure `home-dc-proxmox` has wiped the old signatures on the three SSDs (or that they are acceptable to attach as they are; Longhorn/Talos will not claim a disk with foreign signatures).
+2. `task nodes-plan`, review (3 adds, 0 changes, 0 destroys), run the `DRY_RUN=1` command above for each node.
+3. Maintenance window: drain and shut down each worker (`qm shutdown`) before `task nodes-apply` so `qm set` records the disk in the stopped VM's config; `nodes-apply` does not start them. Then `qm start` each worker. A running VM may instead hot-plug or hold `scsi2` as a pending change, which needs a full stop/start (not a guest reboot); the script prints which one happened.
+4. Verify in the guest with `talosctl get disks` that a ~465 GiB disk with the expected serial is present and that the 100 GiB data disk is unchanged.
+
+**Rollback.** Before Longhorn stores data: shut down the VM, `qm set <vmid> --delete scsi2` (detaches only; the SSD content is untouched), start the VM, and remove `passthrough_disk_by_id` from the node. Removing the variable alone does **not** detach the disk (the helper has no destroy step by design). Re-attaching needs the same node entry and `tofu apply -replace='module.talos.terraform_data.passthrough_disk["<node>"]'` (also needed if a VM is ever recreated). **Warning:** once Longhorn holds volumes on a disk, detaching or removing it destroys that replica; do it only after the volumes are healthy on the other nodes, or after a verified off-host backup and restore. The SSD is the only copy of that replica.
 
 ## Trinity NixOS VM
 

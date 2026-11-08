@@ -14,6 +14,7 @@ variable "nodes" {
     disk_size_gb           = number
     data_disk_size_gb      = optional(number, 100)
     data_disk_storage_pool = optional(string, "local-hdd")
+    passthrough_disk_by_id = optional(string)
     mac_address            = optional(string, "")
     mtu                    = optional(number, 1500)
     subnet_mask            = optional(number, 24)

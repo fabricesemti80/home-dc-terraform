@@ -48,7 +48,7 @@ Non-secret inputs (`proxmox_endpoint`, `nodes`, `gateway`, `talos_version`, `dns
 | --- | --- | --- |
 | Doppler service token | macOS Keychain, service `home-dc-doppler-tf`, account `$USER` | Authenticates `doppler run`, the Doppler provider and the PBS monitoring script. |
 | SSH key pair | `~/.ssh/id_proxmox`, `~/.ssh/id_proxmox.pub` | Public key injected into LXC 4020 and, via cloud-init, into Trinity's temporary Debian bootstrap user `debian` (`proxmox/trinity.tf`). Private key used by the `pbs_setup` remote-exec provisioner and `scripts/trinity-install.sh` (nixos-anywhere bootstrap login). |
-| SSH access to `pve-00` | Operator's SSH config / agent | `scripts/ensure-lxc-nesting.sh`, `scripts/pbs-monitoring-credential.py`, `scripts/trinity-install.sh`, Trinity VM tasks, `access-*` tasks. |
+| SSH access to `pve-00` | Operator's SSH config / agent | `scripts/ensure-lxc-nesting.sh`, `scripts/ensure-vm-passthrough-disk.sh` (root SSH, `terraform_data.passthrough_disk` in the Talos module), `scripts/pbs-monitoring-credential.py`, `scripts/trinity-install.sh`, Trinity VM tasks, `access-*` tasks. |
 | Trinity SSH access | Installed host trusts the public keys in `../nix-hosts/users/fs.nix`; private keys stay in the operator's SSH agent/key files | `proxmox:trinity-ssh`, `trinity-status` and `trinity-configure` log in as `fs@10.0.40.50`. No private key or password enters Terraform or Git. |
 | `cloudflare-tunnel.json`, `cloudflare-tunnel-infra.json` | Repo root, Git-ignored (`local_file` resources) | Local copies of the tunnel credentials JSON. |
 | `*.tfstate*`, `tfplan*`, `*.tfvars` | Each root, Git-ignored | State and plans hold secret values in plaintext (tunnel secrets, PBS passwords). |
@@ -64,6 +64,7 @@ Non-secret inputs (`proxmox_endpoint`, `nodes`, `gateway`, `talos_version`, `dns
 | `USER` | Keychain lookups | Shell | Keychain account name. |
 | `HOME` | `scripts/trinity-install.sh` | Shell | Locates the bootstrap private key `~/.ssh/id_proxmox` used for the temporary Debian login. Path only, not a secret. |
 | `PBS_ADMIN_PASSWORD`, `PBS_BACKUP_PASSWORD` | `scripts/configure-pbs.sh` (inside LXC 4020) | Set inline by the `terraform_data.pbs_setup` provisioner, or prompted when run by hand | Initial PBS account passwords. |
+| `DRY_RUN` (`1`) | `scripts/ensure-vm-passthrough-disk.sh` (forwarded to the remote shell on `pve-00`) | Operator, set by hand (unset or `0` in the `terraform_data.passthrough_disk` provisioner) | Not a secret. With `DRY_RUN=1` the helper runs every safety guard (read-only), then prints the `qm set` command instead of running it, so no disk is attached. Any other value attaches. |
 | `DEBIAN_FRONTEND` (`noninteractive`) | `apt-get` in `scripts/configure-pbs.sh` | Exported by the script | Non-interactive package installation in LXC 4020. |
 | `MODE` (`default`), `PASSWORD` (`preserve`), `app` (`proxmox-backup-server`) | Community Scripts PBS installer (`proxmox-backup-server-install.sh`) | Exported by `scripts/configure-pbs.sh` before the first install | Installer settings. `PASSWORD=preserve` keeps the container root account locked; PBS access uses dedicated PBS users. Not a secret. |
 | `COMMUNITY_SCRIPTS_CORE_URL` | Community Scripts installer | Exported by `scripts/configure-pbs.sh` from its pinned `CORE_URL` | Base URL of the pinned installer core. |

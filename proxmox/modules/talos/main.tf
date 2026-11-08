@@ -116,6 +116,30 @@ resource "proxmox_virtual_environment_vm" "talos_node" {
   }
 
   lifecycle {
-    ignore_changes = [disk[0].file_id]
+    # `disk` is ignored as a whole: the root-SSH helper below attaches a passthrough
+    # scsi2 the provider cannot manage (API token, not root@pam), and the provider
+    # would otherwise plan to remove that unmanaged disk block on every plan.
+    ignore_changes = [disk]
+  }
+}
+
+# Optional whole-SSD passthrough as scsi2 (per node: passthrough_disk_by_id).
+# Proxmox only lets a real root@pam session assign host block devices to a VM; the
+# API token used by the provider cannot, so the attachment is done over root SSH
+# (the same pattern as ensure-lxc-nesting.sh for the PBS LXC). The script is
+# idempotent, refuses unsafe disks and never detaches or wipes anything. The VM
+# resource above ignores the resulting extra disk entry, so the plan stays free of
+# drift. Removing the variable does NOT detach the disk (see proxmox/README.md).
+resource "terraform_data" "passthrough_disk" {
+  for_each = { for node in var.nodes : node.name => node if node.passthrough_disk_by_id != null }
+
+  triggers_replace = [
+    proxmox_virtual_environment_vm.talos_node[each.key].id,
+    each.value.passthrough_disk_by_id,
+    filesha256("${path.module}/../../../scripts/ensure-vm-passthrough-disk.sh"),
+  ]
+
+  provisioner "local-exec" {
+    command = "bash '${path.module}/../../../scripts/ensure-vm-passthrough-disk.sh' '${each.value.proxmox_node}' '${each.value.vm_id}' scsi2 '${each.value.passthrough_disk_by_id}'"
   }
 }

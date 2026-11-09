@@ -50,13 +50,13 @@ tasks:
     desc: Create a review plan for the PBS LXC only
     deps: ["proxmox:init"]
     cmds:
-      - scripts/tofu.sh -chdir=proxmox plan -target=proxmox_virtual_environment_container.pbs -target=terraform_data.pbs_setup -target=doppler_secret.pbs_admin_password -target=doppler_secret.pbs_backup_password -out=tfplan-pbs
+      - scripts/tofu.sh -chdir=proxmox plan -target=proxmox_virtual_environment_container.pbs -target=terraform_data.pbs_setup -target=terraform_data.pbs_ssh_key -target=doppler_secret.pbs_admin_password -target=doppler_secret.pbs_backup_password -out=tfplan-pbs
 
   pbs-apply:
     desc: Apply only the PBS LXC
     deps: ["proxmox:init"]
     cmds:
-      - scripts/tofu.sh -chdir=proxmox apply -target=proxmox_virtual_environment_container.pbs -target=terraform_data.pbs_setup -target=doppler_secret.pbs_admin_password -target=doppler_secret.pbs_backup_password
+      - scripts/tofu.sh -chdir=proxmox apply -target=proxmox_virtual_environment_container.pbs -target=terraform_data.pbs_setup -target=terraform_data.pbs_ssh_key -target=doppler_secret.pbs_admin_password -target=doppler_secret.pbs_backup_password
       - task: ensure-lxc-nesting
         vars:
           VMID: "4020"
@@ -110,8 +110,8 @@ tasks:
         printf '%s\n' \
           'PBS LXC — VMID 4020' \
           'Address: 10.0.40.20/24 on VLAN 40; reachable from VLAN 40 or routed clients.' \
-          'SSH: ssh -i ~/.ssh/id_proxmox root@10.0.40.20' \
-          'The matching public key is authorized; password login is not configured.' \
+          'SSH: ssh proxmox-pbs-0 (or ssh root@10.0.40.20); dedicated key id_proxmox_pbs_0 from the 1Password agent, installed by pbs-apply.' \
+          'Without that key: ssh -t root@pve-00 pct enter 4020. Password login is not configured.' \
           'If SSH reports a key mismatch, verify the fingerprint below, then run ssh-keygen -R 10.0.40.20.' \
           'PBS web UI: https://10.0.40.20:8007 (available after PBS is installed).' \
           'PVE console: ssh pve-00, then pct enter 4020 as root.' \

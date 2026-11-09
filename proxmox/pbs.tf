@@ -17,7 +17,7 @@ resource "proxmox_virtual_environment_container" "pbs" {
       }
     }
     user_account {
-      keys = [trimspace(file(pathexpand("~/.ssh/id_proxmox.pub")))]
+      keys = [trimspace(file(pathexpand("~/.ssh/id_proxmox_pbs_0.pub")))]
     }
   }
   network_interface {
@@ -65,23 +65,30 @@ resource "terraform_data" "pbs_setup" {
     command = "bash '${path.module}/../scripts/ensure-lxc-nesting.sh' 4020 mount=nfs"
   }
 
-  connection {
-    type        = "ssh"
-    host        = "10.0.40.20"
-    user        = "root"
-    private_key = file(pathexpand("~/.ssh/id_proxmox"))
-    timeout     = "5m"
+  # Runs through pve-00 with `pct` (key id_pve_00 from the 1Password agent), so it works
+  # before any key is installed in the container.
+  provisioner "local-exec" {
+    command = "bash '${path.module}/../scripts/run-pbs-setup.sh'"
+    environment = {
+      PBS_ADMIN_PASSWORD  = random_password.pbs_admin.result
+      PBS_BACKUP_PASSWORD = random_password.pbs_backup.result
+    }
   }
+}
 
-  provisioner "file" {
-    source      = "${path.module}/../scripts/configure-pbs.sh"
-    destination = "/root/configure-pbs.sh"
-  }
+# The PBS LXC has its own dedicated key, id_proxmox_pbs_0 (public half declared in
+# nix-hosts users/fs.nix, private half in the 1Password agent), like pve-00 and trinity.
+# This makes it the only key accepted for root in the container, replacing the legacy one.
+resource "terraform_data" "pbs_ssh_key" {
+  triggers_replace = [
+    proxmox_virtual_environment_container.pbs.id,
+    trimspace(file(pathexpand("~/.ssh/id_proxmox_pbs_0.pub"))),
+    filesha256("${path.module}/../scripts/ensure-pbs-ssh-key.sh"),
+  ]
+  depends_on = [terraform_data.pbs_setup]
 
-  provisioner "remote-exec" {
-    inline = [
-      "PBS_ADMIN_PASSWORD='${random_password.pbs_admin.result}' PBS_BACKUP_PASSWORD='${random_password.pbs_backup.result}' bash /root/configure-pbs.sh",
-    ]
+  provisioner "local-exec" {
+    command = "bash '${path.module}/../scripts/ensure-pbs-ssh-key.sh' '${pathexpand("~/.ssh/id_proxmox_pbs_0.pub")}'"
   }
 }
 

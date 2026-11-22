@@ -48,6 +48,9 @@ The Cloudflare state migration retains a local secret-bearing `cloudflare/terraf
 
 For guest operations, `task nodes-plan` creates the reviewed full-stack Talos VM plan and `task nodes-apply` applies that saved plan. `task pbs-plan` and `task pbs-apply` operate on LXC 4020 at `10.0.40.20/24` and also install and configure PBS (`scripts/configure-pbs.sh`: NFS datastore, `pbs-admin@pbs` and `pve-backup@pbs`; generated passwords are written to Doppler `PBS_ADMIN_PASSWORD`/`PBS_BACKUP_PASSWORD`). See [`proxmox/README.md`](proxmox/README.md) for storage, network, and access details.
 
+New app-cluster workers no longer receive the old 100 GiB `scsi1` data disk.
+Existing disks require the gated, one-worker-at-a-time [retirement procedure](proxmox/README.md#retiring-existing-worker-local-path-disks); Terraform intentionally ignores disk changes on existing VMs.
+
 OpenTofu state, saved plans, provider caches, tunnel credential JSON, and archived state are local secret material and ignored by Git. Never commit them.
 
 ## Secrets and environment variables

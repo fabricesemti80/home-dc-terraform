@@ -59,14 +59,6 @@ resource "proxmox_virtual_environment_vm" "talos_node" {
     interface    = "scsi0"
     size         = each.value.disk_size_gb
   }
-  dynamic "disk" {
-    for_each = each.value.controller ? [] : [1]
-    content {
-      datastore_id = each.value.data_disk_storage_pool
-      interface    = "scsi1"
-      size         = each.value.data_disk_size_gb
-    }
-  }
   cdrom {
     file_id   = proxmox_download_file.talos_iso["${each.value.proxmox_node}-${each.value.schematic_id}"].id
     interface = "ide3"

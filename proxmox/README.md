@@ -29,12 +29,30 @@ task nodes-apply
 - Each Talos VM has a single NIC untagged on `vmbr0` in VLAN 40. GPU worker 4095 (`k8s-wrkr-01-gpu`) has P2000 GPU/audio passthrough; its Talos image uses the NVIDIA **580-series LTS** driver/toolkit schematic `af8eb82417d3deaa94d2ef19c3b590b0dac1b2549d0b9b35b3da2bc325de75f7` because production 595 does not support this GPU. Accept NVIDIA's driver EULA before use and verify driver/runtime support in the guest.
 - Before applying a worker GPU passthrough handoff, shut down both donor and recipient VMs in Proxmox. Host-PCI changes can reboot running VMs, and the VM updates are independent; `started = true` may start them again during apply. This is an operator step, not automated.
 - Talos tasks provision VMs only; they do not configure Talos or bootstrap Kubernetes. They do not mutate `home-dc-kubernetes` files or state.
-- Each worker VM receives a dedicated second data disk (`scsi1`) on `local-hdd`, default 100 GiB, controlled per node by `data_disk_size_gb` and `data_disk_storage_pool`. Controllers have no data disk. The existing system disk (`scsi0`) is unchanged.
-- Talos machine config in `home-dc-kubernetes` selects a non-system disk for a worker user volume, mounted at `/var/mnt/local-path-provisioner`. Each worker now has **two** non-system disks (see [Raw SSD passthrough](#raw-ssd-passthrough-for-longhorn-scsi2)): the 100 GiB `local-hdd` data disk (`scsi1`) and, when `passthrough_disk_by_id` is set, a ~465 GiB whole SSD (`scsi2`). Talos must therefore select disks by size/serial and never by "the only non-system disk"; the local-path `diskSelector` must match only the 100 GiB disk. This Terraform root only provisions the guest disks.
+- New worker VMs do not receive the former 100 GiB `scsi1` local-path disk. Existing disks are not detached by Terraform because `disk` changes are ignored to protect the Longhorn passthrough; follow [worker disk retirement](#retiring-existing-worker-local-path-disks).
+- Each Longhorn worker retains its 55 GiB `scsi0` system disk and ~465 GiB passed-through `scsi2` SSD. The physical infra cluster is unaffected.
 - The privileged PBS LXC needs `nesting=1` and `mount=nfs`. The PVE API token cannot change feature flags on an existing privileged LXC (HTTP 403), so the root-SSH helper adds them after creation and reboots only when a feature changes.
 - The PBS LXC has its own dedicated keypair, `id_proxmox_pbs_0`, like `pve-00` (`id_pve_00`) and Trinity. The public half is declared once in `nix-hosts/users/fs.nix` (`sshKeysByHost.pbs`) and written by Home Manager to `~/.ssh/id_proxmox_pbs_0.pub`; the private half lives in the 1Password agent. `initialization.user_account` injects it at container creation only (changes are ignored afterwards); `terraform_data.pbs_ssh_key` enforces it on the running container, replacing the legacy `id_proxmox` key. Setup and key installation go through `pve-00` with `pct`, so they never depend on a key already being inside the container. Connect with `ssh proxmox-pbs-0` or `ssh root@10.0.40.20` (both matched by the Home Manager-managed Host block). Key rotation: change `sshKeysByHost.pbs` in nix-hosts, switch, then re-run `pbs-apply`.
 - PBS and Talos tasks use `-target` for isolated container operations and emit the standard targeting warning. `pbs-apply` targets the container, `terraform_data.pbs_setup` and the two PBS `doppler_secret` resources, and prompts for approval, so it needs a terminal. Talos tasks use a full-stack reviewed plan; successful applies print direct SSH commands and host-key fingerprints.
 - Talos guidance lists each configured IP and VMID, labels workers as configured started, and distinguishes insecure maintenance access from authenticated `talosctl` after config/bootstrap. This root creates no `talosconfig` or VIP.
+
+## Retiring existing worker local-path disks
+
+The former `scsi1` disks are attached and included in VM backups (`backup=1`). They are no longer created for new workers, but the `ignore_changes = [disk]` safeguard means applying Terraform **does not detach existing disks**. The exact existing disks observed on 2026-11-22 are:
+
+| Worker | VM | `scsi1` volume |
+| --- | --- | --- |
+| `k8s-wrkr-01-gpu` | 4095 | `local-hdd:vm-4095-disk-1` |
+| `k8s-wrkr-02` | 4096 | `local-hdd:vm-4096-disk-1` |
+| `k8s-wrkr-03` | 4097 | `local-hdd:vm-4097-disk-1` |
+
+**Prerequisites:** deploy the companion `home-dc-kubernetes` change that disables new local-path provisioning and removes the Talos user volume. Immediately before maintenance, verify zero app-cluster local-path PVs and PVCs including retained/released PVs, no pods mounting the old path, no needed files on the old disks, current tested application backups, and healthy Longhorn replicas. Confirm the Talos `u-local-path-provisioner` volume and mount have disappeared after applying the new machine config. Verify that each VM's current **and pending** configuration contains the expected `scsi1` volume above; stop if either differs or a pending disk change exists. Never identify disks by guest `/dev/sdX` names.
+
+**Maintenance, one worker at a time:** cordon and drain the worker following the Kubernetes Longhorn runbook, shut it down cleanly, and verify `qm status <vmid>` is stopped. On `pve-00`, inspect `qm config <vmid> --current 1` and pending configuration, then detach **only** the verified `scsi1` with `qm set <vmid> --delete scsi1`. The disk should become an `unusedN` entry; record its exact volume ID and do not delete that entry. Verify `scsi0` and the raw Longhorn `scsi2` are unchanged, start the VM, wait for the node to become Ready, uncordon it and wait for Longhorn replicas to return healthy before proceeding to the next worker. Stop on any unexpected VM, disk, pending config, node or replica status.
+
+**Validation:** inspect each VM's current and pending configuration, confirm `scsi1` is absent, and run a new PBS backup. Confirm the new archive excludes the old virtual disk and application workloads remain healthy. Existing backups are unchanged; actual PBS storage savings depend on deduplication, retention and garbage collection.
+
+**Rollback:** while the detached volume remains as `unusedN`, stop the VM and reattach that exact volume as `scsi1`, restore the prior Talos config if the old user volume is required, and validate before uncordoning. Removing the `unusedN` entry may permanently delete its backing volume; do not do so as part of this procedure. After deletion, app state must be recovered from independently verified backups, not from these old disks.
 
 ## Raw SSD passthrough for Longhorn (`scsi2`)
 
@@ -46,7 +64,7 @@ Each worker can get one whole host SSD as a raw passthrough disk for Longhorn, s
 | 4096 | `k8s-wrkr-02` | `ata-CT500MX500SSD1_2344E8836D00` |
 | 4097 | `k8s-wrkr-03` | `ata-CT500MX500SSD1_2349E8875927` |
 
-Always the bare name under `/dev/disk/by-id/` (never `sdX`, never a `-partN` partition; validated). Each id may be used by one node only, and only on workers. The guest sees a ~465 GiB disk (`scsi2`, `ssd=1`, `discard=on`, `backup=0` so PBS jobs never copy it, guest serial = the drive serial, e.g. `2344E8836BF7`). The 100 GiB data disk (`scsi1`) and the 55 GiB system disk (`scsi0`) are not touched.
+Always the bare name under `/dev/disk/by-id/` (never `sdX`, never a `-partN` partition; validated). Each id may be used by one node only, and only on workers. The guest sees a ~465 GiB disk (`scsi2`, `ssd=1`, `discard=on`, `backup=0` so PBS jobs never copy it, guest serial = the drive serial, e.g. `2344E8836BF7`). The helper never changes `scsi0` or `scsi1`.
 
 **Why a script and not a provider `disk` block.** Proxmox only lets a real `root@pam` session assign host block devices ("only root can pass arbitrary filesystem paths"); API tokens are rejected, including a token owned by `root@pam`. This root authenticates with an API token and holds no root password, so the provider's `disk { path_in_datastore = "/dev/disk/by-id/..." }` cannot work here. Following the PBS pattern, `terraform_data.passthrough_disk` (in `modules/talos`) runs `scripts/ensure-vm-passthrough-disk.sh` over root SSH to the node (`ssh pve-00`, same access as `ensure-lxc-nesting.sh`). The script:
 
@@ -54,7 +72,7 @@ Always the bare name under `/dev/disk/by-id/` (never `sdX`, never a `-partN` par
 - refuses when the by-id link is missing or not a whole disk, any partition is mounted, swap is active, the disk is in a ZFS pool, an LVM PV or has a device-mapper/md device on it, the disk is referenced by any other VM or LXC config, or `scsi2` is already in use by something else (current **and** `[PENDING]` config sections are checked, `[snapshot]` sections are ignored; a pending `delete: scsi2` also refuses). `scripts/test-ensure-vm-passthrough-disk.sh` tests these guards against synthetic configs;
 - only ever runs `qm set <vmid> --scsi2 /dev/disk/by-id/...`; it never wipes, formats, detaches, stops or restarts. Old signatures on the SSDs are cleared by the guarded Ansible role in `home-dc-proxmox`, not here. `DRY_RUN=1 scripts/ensure-vm-passthrough-disk.sh pve-00 4096 scsi2 ata-CT500MX500SSD1_2344E8836D00` runs all guards read-only and prints the command.
 
-**No drift / no replacement.** The provider reads every disk of a VM into state, so an unmanaged `scsi2` would make each plan propose removing that disk block (verified with a synthetic state that contained `scsi2`). The VM resource therefore uses `lifecycle { ignore_changes = [disk] }` (previously `[disk[0].file_id]`). Consequence: Terraform no longer reports or applies changes to `scsi0`/`scsi1` (for example a size change in `disk_size_gb`/`data_disk_size_gb`) on existing VMs; initial creation still honours them. Resize or replace disks deliberately (for example `qm resize` or `-replace`) and review the plan by hand.
+**No drift / no replacement.** The provider reads every disk of a VM into state, so an unmanaged `scsi2` would make each plan propose removing that disk block. The VM resource therefore uses `lifecycle { ignore_changes = [disk] }`. Terraform does not report or apply disk changes on existing VMs, including `scsi1` retirement; the system disk remains configured for new VMs. Review disk changes separately and never remove this safeguard while the passthrough disks are unmanaged.
 
 **Plan evidence** (`task nodes-plan`, against the live API with a refreshed state): `Plan: 3 to add, 0 to change, 0 to destroy.`, the three adds being `module.talos.terraform_data.passthrough_disk["k8s-wrkr-01-gpu"|"k8s-wrkr-02"|"k8s-wrkr-03"]`. No `proxmox_virtual_environment_vm` is changed or replaced.
 
@@ -63,7 +81,7 @@ Always the bare name under `/dev/disk/by-id/` (never `sdX`, never a `-partN` par
 1. Make sure `home-dc-proxmox` has wiped the old signatures on the three SSDs (or that they are acceptable to attach as they are; Longhorn/Talos will not claim a disk with foreign signatures).
 2. `task nodes-plan`, review (3 adds, 0 changes, 0 destroys), run the `DRY_RUN=1` command above for each node.
 3. Maintenance window: drain and shut down each worker (`qm shutdown`) before `task nodes-apply` so `qm set` records the disk in the stopped VM's config; `nodes-apply` does not start them. Then `qm start` each worker. A running VM may instead hot-plug or hold `scsi2` as a pending change, which needs a full stop/start (not a guest reboot); the script prints which one happened.
-4. Verify in the guest with `talosctl get disks` that a ~465 GiB disk with the expected serial is present and that the 100 GiB data disk is unchanged.
+4. Verify in the guest with `talosctl get disks` that a ~465 GiB disk with the expected serial is present and that no other disk was altered.
 
 **Rollback.** Before Longhorn stores data: shut down the VM, `qm set <vmid> --delete scsi2` (detaches only; the SSD content is untouched), start the VM, and remove `passthrough_disk_by_id` from the node. Removing the variable alone does **not** detach the disk (the helper has no destroy step by design). Re-attaching needs the same node entry and `tofu apply -replace='module.talos.terraform_data.passthrough_disk["<node>"]'` (also needed if a VM is ever recreated). **Warning:** once Longhorn holds volumes on a disk, detaching or removing it destroys that replica; do it only after the volumes are healthy on the other nodes, or after a verified off-host backup and restore. The SSD is the only copy of that replica.
 
@@ -93,7 +111,6 @@ Rebuilding Trinity (`tofu apply -replace=proxmox_virtual_environment_vm.trinity`
 
 ## Capacity, backup, and validation
 
-- Data-disk sizing assumes `local-hdd` has at least 300 GiB free for the three 100 GiB worker disks plus headroom for snapshots and Proxmox metadata. Confirm free space on `pve-00` before `nodes-apply`.
-- Rollback before storing any workload data: restore the prior Terraform configuration and review a scoped plan. Once a worker data disk has PVC data, **never** remove it or its Terraform state to roll back without an independently verified off-host backup and restore.
-- Validate a fresh plan before applying: it may add three `scsi1` disks, remove four obsolete VLAN 70 NICs and replace the GPU worker's Talos ISO reference with the 580-series LTS schematic. Stop on any VM replacement or `scsi0` resize/deletion.
+- Verify free space on `local-hdd`, current backups and Longhorn replica health before VM maintenance. Retiring an attached disk does not delete existing PBS backups or guarantee a 100 GiB reduction in deduplicated storage.
+- Review a fresh full-stack plan before applying. Stop on VM replacement, `scsi0` changes, passthrough disk changes or any unrelated destructive action.
 - Removing the secondary NIC or changing the boot ISO may require a VM stop/start. Schedule a maintenance window, keep the old saved state and apply only the plan actually reviewed.
